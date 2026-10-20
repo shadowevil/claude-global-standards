@@ -41,9 +41,9 @@ line once approved:
     alone used to enforce every rule). `--enforce` without `--log-only` is recorded in `.config` as
     `enforce-without-log-only`, since the intended line carries both.
   * W4 (ALWAYS_LOG_ONLY) is never enforceable, even if listed. An unknown id (the retired
-    W3-unresolved included, 2026-10-20), a
-    bare `--enforce`, a misspelled flag or a stray word is ignored, never a crash, and is written
-    to `<hits path>.config` (size-capped) so a typo in settings.json is visible.
+    W3-unresolved included, 2026-10-20), a bare `--enforce`, a misspelled flag or a stray word is
+    ignored, never a crash, and is written to `<hits path>.config` (size-capped) so a typo in
+    settings.json is visible.
   * A deny carries ONLY the reasons of enforced rules: a delete failing both W2 and W3 under
     `--enforce=W2` denies with W2's reason alone. Every hit is still logged as before, and each log
     row now has `"denied": true|false`.

@@ -698,7 +698,7 @@ FP_CASES = [
     ("Bash", "rm -rf /*", None),
     ("Bash", "cp a /", None),
     ("Bash", "cp a \\", None),
-    ("Bash", "mkdir 'C:\\x\\a\"b'", "unjudged"),              # leftover quote
+    ("Bash", "mkdir 'C:\\x\\a\"b'", "unjudged"),                   # leftover quote
     ("Bash", "mkdir C:\\x\\a#b", "W3"),                               # inner # is a real name
     ("Bash", "mkdir C:\\x\\a?b", "W3"),                             # final-segment glob: folder judged
     ("Bash", "rm C:\\x\\*.log", "W3"),                                # final-segment glob: folder judged
@@ -709,12 +709,12 @@ FP_CASES = [
     ("Bash", "rm -f working/*.tmp", None),                             # relative, in-root
     ("Bash", "rm -f *.tmp", None),                                     # bare glob = the cwd
     ("Bash", "cd C:\\x && rm -f *.tmp", "W3"),                         # bare glob after cd outside
-    ("Bash", "rm C:\\x*\\a.log", "unjudged"),                     # glob before the last segment
+    ("Bash", "rm C:\\x*\\a.log", "unjudged"),                          # glob before the last segment
     ("Bash", "rm " + ROOT + "\\w*\\a.log", "unjudged"),
-    ("Bash", "echo x > '\\n#include'", "unjudged"),               # escape sequence, not a path
+    ("Bash", "echo x > '\\n#include'", "unjudged"),                    # escape sequence, not a path
     ("Bash", "echo x > C:\\x\\out\\n", "unjudged"),
     ("Bash", "echo x > C:\\new\\x.txt", "W3"),                         # \n + name char is a path
-    ("Bash", 'rm -f "$D"/hb_*', "unjudged"),                     # quoted $var prefix re-glued
+    ("Bash", 'rm -f "$D"/hb_*', "unjudged"),                          # quoted $var prefix re-glued
     ("Bash", 'rm -f "$S/$d"/appdata/x-*.json', "unjudged"),
     ("Bash", "rm -f '$D'/x.txt", "unjudged"),
     ("Bash", 'rm -f "C:/x"/y.txt', "W3"),                             # literal quoted prefix: joined
@@ -730,12 +730,12 @@ FP_CASES = [
     ("Bash", "mkdir /c/x/{a,b}", "W3"),
     ("Bash", "touch /c/x/f{1..3}", "W3"),
     ("Bash", "mkdir C:\\x\\{a,b}", "W3"),
-    ("Bash", "mkdir /c/x*/{a,b}", "unjudged"),                   # glob in the folder part
+    ("Bash", "mkdir /c/x*/{a,b}", "unjudged"),                        # glob in the folder part
     ("Bash", "mkdir " + ROOT + "\\{a,b}", None),                       # in-root folder: fine
     ("Bash", "mkdir working/{a,b}", None),
     ("Bash", "echo '{a,b}' > " + ROOT + "\\o.txt", None),              # quoted braces untouched
     ("Bash", "{ echo x; } > C:\\x\\evil.txt", "W3"),                   # a group, not an expansion
-    ("Bash", "mkdir C:\\x\\a(b", "unjudged"),                    # unbalanced paren
+    ("Bash", "mkdir C:\\x\\a(b", "unjudged"),                         # unbalanced paren
     ("Bash", "mkdir \"C:\\Program Files (x86)\\evil\"", "W3"),          # balanced parens: judged
     ("Bash", "mkdir \"" + ROOT + "\\dir (x86)\"", None),                 # ... and in-root is fine
     ("Bash", "mkdir 'C:\\x\\a|b'", None),                             # pipe inside: junk
@@ -764,7 +764,7 @@ FP_CASES = [
     ("Bash", "time cd working && echo x > ../o.txt", "unjudged"),
     ("Bash", "! cd working && echo x > ../o.txt", "unjudged"),
     ("Bash", "X=1 cd working && echo x > ../o.txt", "unjudged"),
-    ("Bash", "cd C: && echo x > o.txt", "unjudged"),               # drive-relative
+    ("Bash", "cd C: && echo x > o.txt", "unjudged"),                    # drive-relative
     ("Bash", "cd D:sub && echo x > o.txt", "unjudged"),
     ("PowerShell", "Set-Location HKLM:\\Software; Out-File -FilePath o.txt", "unjudged"),
     ("PowerShell", "Set-Location Env:; Out-File -FilePath o.txt", "unjudged"),
@@ -795,7 +795,7 @@ FP_CASES = [
     ("Bash", "cd /c/x && mkdir sub", "W3"),
     ("Bash", "pushd working && popd && echo x > ../o.txt", "W3"),  # popd restores the root cwd
     ("Bash", "cd working && echo x > " + _OUT, "W3"),               # absolute targets ignore cd
-    ("Bash", "cd $D && echo x > out.txt", "unjudged"),         # unresolvable cd
+    ("Bash", "cd $D && echo x > out.txt", "unjudged"),              # unresolvable cd
     ("Bash", "cd - && echo x > out.txt", "unjudged"),
     ("Bash", "cd $D && echo x > " + ROOT + "\\ok.txt", None),       # absolute in-root after cd: fine
     ("Bash", "cd $D && echo x > " + _OUT, "W3"),                    # absolute outside after cd: fires
