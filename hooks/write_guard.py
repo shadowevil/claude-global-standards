@@ -354,7 +354,11 @@ def process(event, argv):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     try:
-        event = json.loads(sys.stdin.read() or "{}")
+        # 2026-10-20: under -I the text-mode stdin decodes as the console code page (cp1252, with
+        # surrogateescape), but Claude Code sends UTF-8. A non-ASCII path became mojibake, so an
+        # inside-root write under a non-ASCII project root was judged outside it, and every reason
+        # named a garbled path. Read bytes and decode them as UTF-8.
+        event = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace") or "{}")
         rows, verdict, issues = process(event, argv)
         hits_path = cli_value(argv, "hits-path")
         output.log_hits(rows, hits_path=hits_path)
@@ -583,6 +587,31 @@ def enforce_self_test(failures):
                   "subprocess: unknown id / misspelled flag must print nothing and exit 0")
             p = run_hook("{not json at all", ["--enforce=W2"])
             check(p.returncode == 0 and p.stdout.strip() == "", "subprocess: garbage stdin must fail open")
+
+            # 2026-10-20: stdin is UTF-8 bytes (what Claude Code sends), not the console code page
+            def run_hook_utf8(ev, extra, project_dir):
+                env_u = dict(env, CLAUDE_PROJECT_DIR=project_dir)
+                return subprocess.run([sys.executable, "-I", "-S", script, "--log-only",
+                                       "--hits-path=" + scratch] + extra,
+                                      input=json.dumps(ev, ensure_ascii=False).encode("utf-8"),
+                                      capture_output=True, env=env_u, timeout=30)
+
+            # (a) mojibake: an inside-root write under a non-ASCII root must not look outside it
+            uroot = root + "-pr\u00f6j"
+            ev_in = {"tool_name": "Write", "cwd": uroot,
+                     "tool_input": {"file_path": uroot + "\\src\\a.txt"}}
+            p = run_hook_utf8(ev_in, ["--enforce=W3"], uroot)
+            check(p.returncode == 0 and p.stdout.strip() == b"",
+                  "subprocess: a UTF-8 inside-root write under a non-ASCII root must not deny, got %r"
+                  % p.stdout[:120])
+            # (b) an outside write denies AND its reason names the real path (Cyrillic es = D1 81,
+            # which the old read turned into '\xd1\udc81'); stdout is ASCII, so it shows escaped
+            ev_out = {"tool_name": "Write", "cwd": root,
+                      "tool_input": {"file_path": "C:\\outside-\u0441\\a.txt"}}
+            p = run_hook_utf8(ev_out, ["--enforce=W3"], root)
+            check(p.returncode == 0 and b'"deny"' in p.stdout and b"outside-\\u0441" in p.stdout,
+                  "subprocess: a UTF-8 outside write must deny under W3 naming the real path, got %r"
+                  % p.stdout[:160])
             logged = []
             try:
                 with open(scratch, encoding="ascii") as fh:
