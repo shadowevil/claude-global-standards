@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.jsonl
+*.jsonl.*
+*.log
+staging/
+.claude/scratch/

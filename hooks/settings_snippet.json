@@ -1,0 +1,10 @@
+{
+  "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/write_guard.py\" --log-only",
+      "timeout": 10
+    }
+  ]
+}

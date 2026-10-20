@@ -1,0 +1,3 @@
+# Store every file byte-for-byte: install.py copies exact bytes into ~/.claude, so git must not
+# rewrite line endings on checkout or commit.
+* -text
