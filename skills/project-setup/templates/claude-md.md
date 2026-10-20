@@ -16,7 +16,8 @@ rules (safety, git, dispatching, working habits) are in `~/.claude/CLAUDE.md` an
 ## git, backups, changelogs (binding)
 
 - Branches: `<prefix>-NN-<name>`, cut from `<default branch>`. (Push/pull/force rules are global.)
-- <IF backups> **Back up before modifying** any existing file: `<backup tool>`; sets purged after 48 h.
+- <IF backups, and not deferred - omit this line while the backup tool is on hold> **Back up before
+  modifying** any existing file: `<backup tool>`; sets purged after 48 h.
 - <IF changelogs> **Maintain the changelogs** for every completed change: `<technical>` first, then
   `<user-facing>`; one living entry each, cleared when a new branch is cut. Format: `.claude/docs/changelog_format.md`.
 

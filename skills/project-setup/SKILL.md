@@ -29,7 +29,7 @@ Helbreath SDL has". The workflow it installs is `references/workflow.md` (its on
 | Component | Canonical source |
 |---|---|
 | Ticket system | `C:\Users\ShadowEvil\source\master-ticket-site\ticket-system` - follow its `docs\ADOPTING.md` end to end (owner: the Ticket Master session) |
-| Backup tool | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\src\tools\scripts\backup.ps1` |
+| Backup tool | **On hold** (2026-10-20): the canonical script can delete outside its backup folder (see Step 4, Backups). Owner: Helbreath SDL3. |
 | Changelog format | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\docs\changelog_format.md` |
 | Metrics baseline | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\metrics\subagent_baseline.py` |
 | C++ pack | `packs/cpp-house-style.md` |
@@ -58,6 +58,8 @@ Gather, then report in at most 10 lines before asking anything:
 2. Tickets: full system with viewer (recommended) / none.
 3. Changelogs: technical + user-facing (recommended) / technical only / none.
 4. Backups before modifying: recommend yes when the repo holds untracked or binary assets, else no.
+   While the backup tool is on hold (component table), say so: a yes is recorded as "backups:
+   deferred" in the plan and nothing is copied.
 
 **Round B - team** (skip when solo; 3 questions):
 1. Areas: offer up to 4 proposals built from the detected source folders, each option naming its paths
@@ -81,8 +83,8 @@ Scratch is not asked: it is fixed globally at `.claude/scratch/<role>/<task>/` (
 
 The documentation standard is global (`~/.claude/docs/documentation_standards.md`) and is not asked.
 
-Changelog file names default to `dev-changelog.md` and `user-changelog.md`; the backup location is
-fixed by the script. The ticket system's own values (name, prefix, port, CLI folder, authors) are asked
+Changelog file names default to `dev-changelog.md` and `user-changelog.md` (backups are on hold, so
+no backup location is set). The ticket system's own values (name, prefix, port, CLI folder, authors) are asked
 by ADOPTING.md's sect. 1 when that step runs, not here.
 
 ## Step 3 - Plan, then confirm once
@@ -115,12 +117,13 @@ entry "Workflow adopted <date> via project-setup: <choices>".
   its report to Ticket Master. Do not improvise around it.
 - **Changelogs:** create both files with an empty living entry; adapt `changelog_format.md` (strip
   Helbreath names and areas).
-- **Backups:** the script finds the repo root as `Join-Path $PSScriptRoot '..\..\..'`, which is right
-  only three folders deep. Put it at `<repo>\src\tools\scripts\backup.ps1` (or another path exactly
-  three deep), or edit that line to this project's depth. Then prove the root before relying on it: run
-  `list`, and one `save` of a throwaway file inside the project, and confirm the set appears under
-  `<repo>\.claude\.backups\`. Its `purge all` deletes that folder recursively, so a wrong root is
-  dangerous. Gitignore `.claude/.backups/`.
+- **Backups: ON HOLD - copy nothing** (2026-10-20). Ticket Master found that the canonical
+  `backup.ps1` deletes outside its backup folder: `purge -Set ..` removed `<repo>\.claude`, and a
+  `-NewFiles` path outside the repo was deleted at `restore`. Helbreath has since ported it to an
+  uncommitted `src\tools\scripts\backup.py`, which has the same holes (unvalidated set name and label,
+  a repo-prefix check with no trailing separator, unchecked new-file paths). The fault is with its
+  owner, Helbreath SDL3. Lift this hold only after the fixed version is committed there and reviewed,
+  and repoint the component table at it. Until then, record "backups: deferred" and tell the user why.
 - **Metrics:** copy `subagent_baseline.py` to `.claude/metrics/` and set `PROJECT_SLUG`: the absolute
   project path with every character that is not a letter or digit replaced by `-`
   (`C:\Users\x\source\foo` -> `C--Users-x-source-foo`). If `~/.claude/projects/<slug>` exists, say so;
@@ -132,7 +135,7 @@ entry "Workflow adopted <date> via project-setup: <choices>".
 
 - Every path CLAUDE.md and the briefs point at exists.
 - Tickets: ADOPTING.md's verify section passes.
-- Backups: the `list` / `save` proof above.
+- Backups: nothing copied while on hold.
 - `git status --short` shows only the files from the plan.
 - Any staged hook passes its self-test and has a review verdict before install.
 
