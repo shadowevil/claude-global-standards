@@ -22,7 +22,7 @@ The rules here target those costs directly.
 | `skills/adopt-project-standards/` | `~/.claude/skills/` | Brings an EXISTING project in line: measures its transcripts, classifies every local rule against the global standards, migrates in reviewed waves |
 | `skills/rule-hook-agent/` | `~/.claude/skills/` | When you state a new rule, records it and checks whether a hook can enforce it |
 | `skills/pattern-skill-agent/` | `~/.claude/skills/` | When the same work has been done three times, turns it into a skill |
-| `hooks/` | `~/.claude/hooks/` | The global write guard: W2 literal delete paths, W3 writes outside the project, W5 no system-temp writes (plus log-only rules) |
+| `hooks/` | `~/.claude/hooks/` | The global write guard: W2 literal delete paths, W3 writes outside the project, W5 no system-temp writes (plus log-only rules); the S1 size flag for a project `.claude` over 1 GB |
 | `install.py` | - | The installer: a dry run by default, backs up before replacing, never deletes, never touches `settings.json` |
 
 ## Quick start
@@ -60,6 +60,38 @@ Read `~/.claude/hooks/write_guard_hits.jsonl` (or run `hooks/hits_summary.py`) f
 `--enforce=W2,W3,W5` (or a subset) to the command in `settings.json` to let those rules deny. Keep
 `--log-only` on the line either way: an `--enforce=` list then names the only rules that may deny.
 
+**S1, the `.claude` size flag (`hooks/size_guard.py`, flags from day one).** Rule (user, 2026-10-20):
+"if the agents local .claude directory gets bigger than 1gb, it needs to prune any temporary files
+and address the bloat", to be checked "whenever that directory is greped or used". It is partly
+hookable: a hook can measure the folder and tell the agent, but it can't judge what is temporary. So S1
+only ever flags. It adds `additionalContext`, never denies and never deletes (user ruling,
+2026-10-20: "a flag to the agent/PM to prune it. Not necessarily blocking"). "Local" means the
+project's `.claude\` (`CLAUDE_PROJECT_DIR`, else `cwd`), never `~/.claude`.
+- Events: SessionStart and UserPromptSubmit reach the main session. PreToolUse on
+  Read/Grep/Glob/Write/Edit/MultiEdit/NotebookEdit/Bash/PowerShell fires only when the target is
+  inside `<project>\.claude`, and reaches whoever made the call, main session or subagent. Subagents
+  get a "report it, prune only if your brief allows writes" wording.
+- Message: the size, the top 5 subfolders, prune `.claude\scratch\` first with literal paths (the
+  step is left out when scratch is empty), and leave worktrees, metrics, docs, design, backups and
+  tickets to the user.
+- Cache: one state file beside the script (`size_guard_state.jsonl`, never inside a project).
+  The folder is re-measured at most every 10 min, or every 2 min while it is over the limit or after
+  a walk the 3 s cap cut short. `--limit-mb=`, `--ttl-minutes=`, `--over-ttl-minutes=` and
+  `--budget-seconds=` override these.
+- How often it flags, per project and recipient (the main session, or each subagent): at most once
+  per 10-min window while pruning scratch alone could get the folder under the limit. When even
+  deleting all of scratch could not, it flags once per session (user ruling, 2026-10-20). In both
+  cases a SessionStart after `/clear` or a compaction flags the main session again, since the earlier
+  flag has left its context. A hook process that sees a parallel process already flagged stays silent.
+- Wiring: merge `hooks/size_guard_settings_snippet.json` (three events) into `settings.json`. It ships
+  flagging from day one, with no log-only week (user ruling, 2026-10-20). Add `--log-only` to a
+  command to record rows without showing the flag, or set `CLAUDE_SIZE_GUARD=log`. Rows go to
+  `size_guard_hits.jsonl`. Self-test: `python -I -S -B hooks/size_guard.py --self-test`.
+- Measured 2026-10-20: a full walk takes 30-70 ms warm and up to 660 ms cold (6,388 files). The hook
+  costs about 70-95 ms per matched call when it exits at the pre-filter, about 120-190 ms when it
+  checks. Folders over 1 GB: Helbreath 2.6 GB (all `.backups`), entityframeworkcpp 2.0 GB (all
+  `worktrees`), hb-npc-wow-maker 4.2 GB (all `scratch`).
+
 **Strict git (optional):** `python install.py --strict-git --apply` appends
 `global/CLAUDE.git-strict.md` ("never commit on the default branch") to the installed `CLAUDE.md`.
 Pass the flag on every later install too, or the dry run reports `CLAUDE.md` as changed.
@@ -70,7 +102,8 @@ This repo is one person's live setup, and some lines name that machine:
 - `global/CLAUDE.md`: the Python interpreter path, the `C:\Users\<name>\.claude` path, and the console
   code page (cp1252, hence the ASCII rule).
 - `hooks/settings_snippet.json` and the usage line in `hooks/write_guard.py`'s docstring: the
-  absolute path to `write_guard.py`.
+  absolute path to `write_guard.py`. `hooks/size_guard_settings_snippet.json`: the path to
+  `size_guard.py`.
 - `skills/adopt-project-standards/SKILL.md` Step 1: the absolute path to `transcript_metrics.py`.
 - The hook self-test fixtures in `hooks/rules/` (`w2_literal_delete_paths.py`, `w3_outside_root.py`,
   `w5_temp_dir.py`) use `C:\Users\ShadowEvil\...` sample paths. Only the self-test reads them, so
@@ -106,11 +139,14 @@ Set up the global Claude Code standards from this repository on my machine.
    would replace in my existing ~/.claude/CLAUDE.md. If I already have a global CLAUDE.md, propose a
    merge rather than overwriting my rules.
 4. After I approve, run `python install.py --apply`.
-5. Hooks: explain what each global rule (W2, W3, W5) blocks. Recommend starting log-only. Install the
-   hook code with `python install.py --hooks --apply` and merge hooks/settings_snippet.json into
+5. Hooks: explain what each global rule (W2, W3, W5) blocks, and that S1 only flags a project
+   `.claude` folder over 1 GB and never blocks. Recommend starting W2, W3 and W5 log-only; S1's
+   snippet flags from day one. Install the hook code with `python install.py --hooks --apply` and
+   merge hooks/settings_snippet.json and hooks/size_guard_settings_snippet.json into
    ~/.claude/settings.json only after I approve both steps.
 6. Verify: confirm ~/.claude/CLAUDE.md matches the repo copy, list the installed skills, and if hooks
-   were installed, run `python -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test` with
+   were installed, run `python -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test` (and the
+   same for `size_guard.py`) with
    <home> spelled out as an absolute path (PowerShell does not expand `~` for python).
 7. Tell me how to use the two main skills: "set up this project's workflow" (project-setup) in a new
    project, and "adopt the standards" (adopt-project-standards) in an existing one.

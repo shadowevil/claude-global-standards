@@ -118,6 +118,10 @@ per-project CLAUDE.md and project memory).
   `<project>\.claude\scratch\<role or session>\<task or ticket>\`. Durable outputs go where they
   belong instead: measurements and baselines in `.claude\metrics\`, docs in `.claude\docs\`, plans in
   `.claude\design\plans\`. Nothing is dropped loose at the project root or in a parent folder.
+- **A project's `.claude\` stays under 1 GB** (user rule, 2026-10-20: "if the agents local .claude
+  directory gets bigger than 1gb, it needs to prune any temporary files and address the bloat").
+  Over it, prune temporary files first (scratch, stale outputs), with literal delete paths, then report
+  what else is large; anything that is not clearly temporary is the user's call.
 - **No writes to the system temp folders** (user rule, 2026-10-18: "global block with a message stating to keep files
   local to the project inside the local .claude and subfolders"). Never write to `/tmp`, `%TEMP%` / `%TMP%` or
   `AppData\Local\Temp` (the harness scratchpad there included). Enforced by the global write guard (W5).
