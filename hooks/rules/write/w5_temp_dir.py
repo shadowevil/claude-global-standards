@@ -140,7 +140,7 @@ SHELL_CASES = [
     ("PowerShell", "Out-File -FilePath %TMP%\\x.txt", True),
     ("Bash", "echo x > {TEMP}", False),                          # not a variable
     ("Bash", "echo x > $TEMPLATE/x", False),                     # a different variable
-    ("Bash", "echo x > $D/x", False),                            # unresolved, not temp: W3's job
+    ("Bash", "echo x > $D/x", False),                            # unresolved, not temp: not W5's
     ("Bash", "cat /tmp/x", False),                               # a read
     ("Bash", "grep foo /tmp/x > " + ROOT + "\\out.txt", False),  # reads temp, writes the project
     ("Bash", "cp /tmp/x " + ROOT + "\\x", False),                # copy FROM temp

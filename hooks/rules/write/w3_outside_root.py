@@ -16,9 +16,13 @@ for the raw target list rather than each parsing it themselves.
 
 Two shapes:
   evaluate_tool(event)  - a Write/Edit/MultiEdit/NotebookEdit event -> [(raw_target, resolved_bad_path), ...]
-  evaluate_shell(event) - a Bash/PowerShell event -> [(rule_id, detail), ...], rule_id one of
-                           RULE_ID ("W3") or UNRESOLVED_ID ("W3-unresolved", never a candidate for denial)
+  evaluate_shell(event) - a Bash/PowerShell event -> [(RULE_ID, detail), ...]
 decide(event, hits) turns either result into a PreToolUse deny, honouring hooklib.output.enforcing().
+
+A target that cannot be judged statically ($variable, a glob before the last segment, a relative
+path after a cd that cannot be followed) is left unjudged and produces no row. 2026-10-20 (user
+approved): the old "W3-unresolved" row for such targets was removed - ~70% of all hit-log rows
+(7,112 measured), never denied, carrying no verdict anyone acted on.
 """
 import re
 
@@ -27,15 +31,11 @@ from hooklib import shell
 from hooklib.output import excerpt
 
 RULE_ID = "W3"
-UNRESOLVED_ID = "W3-unresolved"
 
 MSG = {
     RULE_ID: "Write outside the allowed roots. Rewrite the target as a path under the session's "
              "project root, or under ~/.claude/ - the one location this hook allows outside the "
              "project root.",
-    UNRESOLVED_ID: "Write target not statically resolvable ($variable, a substitution) - this hook "
-                   "cannot prove it is inside or outside the allowed roots, so it is logged, never "
-                   "rejected. Prefer a literal path when you can.",
 }
 
 WRITE_VERBS_ALL_POS = {"mkdir", "touch"}
@@ -121,7 +121,7 @@ PS_SWITCH_FLAGS = {"-force", "-recurse", "-whatif", "-confirm", "-verbose", "-pa
 #     File.AppendAllText, Directory.CreateDirectory, New-Object IO.StreamWriter, Add-Type,
 #     Invoke-Expression, ...) - unbounded surface for a static, line-based parser; this is
 #     effectively arbitrary code execution, not a fixed cmdlet grammar. Same stance as an
-#     unresolvable $variable target (W3-unresolved): logged as a gap, never silently "handled".
+#     unresolvable $variable target: a known gap, never judged statically.
 #   - `cmd /c copy ...` / `cmd.exe /c copy ...` as a WRAPPING sub-command - this hook does not
 #     unwrap and re-parse a nested shell invocation's own command line (a general limitation, not
 #     specific to copy/move/ren); `copy`/`move`/`ren` typed directly (no `cmd /c` wrapper) ARE
@@ -134,7 +134,7 @@ VAR_OR_SUBST = shell.VAR_OR_SUBST  # shared with rules/delete - both need "is th
 PSEUDO_FILE_PREFIX = "/dev/"
 # FP2 - parser junk: a pipe or newline inside the token, a leading # or (, or a bare root token
 # left over from a glob/brace split - skipped. Unbalanced parens, a leftover quote, or a glob
-# (? *) cannot be judged statically - routed to W3-unresolved. Balanced parens ("Program Files
+# (? *) cannot be judged statically - left unjudged, no row. Balanced parens ("Program Files
 # (x86)") are a real path and are judged.
 JUNK_CHARS = re.compile(r"[|\n]")
 JUNK_EXACT = {"/", "\\", "/*"}
@@ -428,7 +428,7 @@ def reglue(seg, raw):
     """`raw` joined back onto a quoted word it was typed against with no space (`"$D"/x`), or raw
     unchanged. shell_tokens (shared with the enforced W2, so left as is) splits such a word in two,
     and judging the tail alone read `"$D"/hb_*` as C:/hb_*. With a $variable prefix the joined
-    target is logged W3-unresolved. With a LITERAL prefix (`"/c/x"/e.txt`) the quoted word is
+    target is left unjudged. With a LITERAL prefix (`"/c/x"/e.txt`) the quoted word is
     itself also a target and is judged on its own (`/c/x` -> W3 when outside), and the tail, when
     it reaches here, is judged joined (`/c/x/e.txt`). A one-letter tail (`"/c/x"/e`) never reaches
     here: the delete parser reads `/e` as a cmd.exe switch, so only the quoted word is judged."""
@@ -445,10 +445,11 @@ def is_relative(raw):
     return not re.match(r"^[A-Za-z]:\\", t) and not t.startswith("\\\\")
 
 
-def evaluate_shell(event):
-    """[(rule_id, detail), ...]: RULE_ID (detail is (segment, verb, raw_target, resolved_bad_path))
-    for a statically-resolvable target outside every allowed root, UNRESOLVED_ID (detail is
-    (segment, verb, raw_target), always log-only) for a target this parser cannot resolve."""
+def evaluate_shell(event, unjudged=None):
+    """[(RULE_ID, (segment, verb, raw_target, resolved_bad_path)), ...] for every statically-
+    resolvable target outside every allowed root. A target this parser cannot resolve gives no hit;
+    when `unjudged` is a list, its raw target is appended there (the self-test reads it to prove
+    such a target is left alone rather than judged)."""
     hits = []
     tool = event.get("tool_name") or ""
     if tool not in ("Bash", "PowerShell"):
@@ -463,11 +464,10 @@ def evaluate_shell(event):
         kind, judged = classify_target(reglue(seg, raw))
         if kind == "skip":
             continue
-        if kind == "unresolved":
-            hits.append((UNRESOLVED_ID, (seg, verb, raw)))
-            continue
-        if seg_cwd is shell.UNRESOLVED_CWD and is_relative(judged):
-            hits.append((UNRESOLVED_ID, (seg, verb, raw)))  # relative to a cd we cannot follow
+        if kind == "unresolved" or (seg_cwd is shell.UNRESOLVED_CWD and is_relative(judged)):
+            # not statically judgeable (or relative to a cd we cannot follow): no row
+            if unjudged is not None:
+                unjudged.append(raw)
             continue
         bad = paths.violation(judged, event, seg_cwd if isinstance(seg_cwd, str) else None)
         if bad is not None:
@@ -494,30 +494,22 @@ def log_rows(event, tool_hits, shell_hits, ms):
         rows.append({"rule": RULE_ID, "tool": event.get("tool_name"), "root": root, "cwd": cwd,
                       "target": raw, "sample": [excerpt("%s -> %s" % (raw, bad))],
                       "session": event.get("session_id"), "ms": ms, "msg": MSG[RULE_ID]})
-    for rid, detail in shell_hits:
-        if rid == RULE_ID:
-            seg, verb, raw, bad = detail
-            sample = excerpt("%s -> %s (resolves outside allowed roots: %s)" % (verb, raw, bad))
-        else:
-            seg, verb, raw = detail
-            sample = excerpt("%s -> %s (unresolvable, not judged)" % (verb, raw))
-        rows.append({"rule": rid, "tool": event.get("tool_name"), "root": root, "cwd": cwd,
+    for _rid, (_seg, verb, raw, bad) in shell_hits:
+        sample = excerpt("%s -> %s (resolves outside allowed roots: %s)" % (verb, raw, bad))
+        rows.append({"rule": RULE_ID, "tool": event.get("tool_name"), "root": root, "cwd": cwd,
                       "target": raw, "sample": [sample],
-                      "session": event.get("session_id"), "ms": ms, "msg": MSG[rid]})
+                      "session": event.get("session_id"), "ms": ms, "msg": MSG[RULE_ID]})
     return rows
 
 
 def decide(event, tool_hits, shell_hits, enforce):
-    """The PreToolUse deny for these hits, or None. UNRESOLVED_ID never denies, regardless of
-    `enforce` - it is excluded unconditionally, the same guarantee the project hook makes."""
+    """The PreToolUse deny for these hits, or None."""
     if not enforce:
         return None
     reasons = []
     for raw, bad in tool_hits:
         reasons.append("W3: `%s` -> %s - %s" % (excerpt(raw), bad, MSG[RULE_ID]))
-    for rid, detail in shell_hits:
-        if rid != RULE_ID:
-            continue
+    for _rid, detail in shell_hits:
         seg, _verb, raw, bad = detail
         reasons.append("W3: `%s` -> %s (resolves to %s, outside the allowed roots) - %s"
                         % (excerpt(seg), raw, bad, MSG[RULE_ID]))
@@ -689,7 +681,8 @@ CMD_EXE_CASES = [
 N_CASES = 5 + 17  # + the 2026-10-17 settings/side-notes real-file cases
 
 # 2026-10-17 false-positive fixes. (tool, command, expected) - expected is "W3" (must fire),
-# "W3-unresolved" (logged, not judged), or None (no W3 or W3-unresolved row at all). cwd == ROOT.
+# "unjudged" (no row, but left unjudged rather than judged fine - see evaluate_shell's `unjudged`),
+# or None (judged, no row). cwd == ROOT.
 _OUT = "C:\\x\\evil.txt"
 FP_CASES = [
     # FP1 pseudo-files
@@ -705,7 +698,7 @@ FP_CASES = [
     ("Bash", "rm -rf /*", None),
     ("Bash", "cp a /", None),
     ("Bash", "cp a \\", None),
-    ("Bash", "mkdir 'C:\\x\\a\"b'", "W3-unresolved"),              # leftover quote
+    ("Bash", "mkdir 'C:\\x\\a\"b'", "unjudged"),              # leftover quote
     ("Bash", "mkdir C:\\x\\a#b", "W3"),                               # inner # is a real name
     ("Bash", "mkdir C:\\x\\a?b", "W3"),                             # final-segment glob: folder judged
     ("Bash", "rm C:\\x\\*.log", "W3"),                                # final-segment glob: folder judged
@@ -716,33 +709,33 @@ FP_CASES = [
     ("Bash", "rm -f working/*.tmp", None),                             # relative, in-root
     ("Bash", "rm -f *.tmp", None),                                     # bare glob = the cwd
     ("Bash", "cd C:\\x && rm -f *.tmp", "W3"),                         # bare glob after cd outside
-    ("Bash", "rm C:\\x*\\a.log", "W3-unresolved"),                     # glob before the last segment
-    ("Bash", "rm " + ROOT + "\\w*\\a.log", "W3-unresolved"),
-    ("Bash", "echo x > '\\n#include'", "W3-unresolved"),               # escape sequence, not a path
-    ("Bash", "echo x > C:\\x\\out\\n", "W3-unresolved"),
+    ("Bash", "rm C:\\x*\\a.log", "unjudged"),                     # glob before the last segment
+    ("Bash", "rm " + ROOT + "\\w*\\a.log", "unjudged"),
+    ("Bash", "echo x > '\\n#include'", "unjudged"),               # escape sequence, not a path
+    ("Bash", "echo x > C:\\x\\out\\n", "unjudged"),
     ("Bash", "echo x > C:\\new\\x.txt", "W3"),                         # \n + name char is a path
-    ("Bash", 'rm -f "$D"/hb_*', "W3-unresolved"),                     # quoted $var prefix re-glued
-    ("Bash", 'rm -f "$S/$d"/appdata/x-*.json', "W3-unresolved"),
-    ("Bash", "rm -f '$D'/x.txt", "W3-unresolved"),
+    ("Bash", 'rm -f "$D"/hb_*', "unjudged"),                     # quoted $var prefix re-glued
+    ("Bash", 'rm -f "$S/$d"/appdata/x-*.json', "unjudged"),
+    ("Bash", "rm -f '$D'/x.txt", "unjudged"),
     ("Bash", 'rm -f "C:/x"/y.txt', "W3"),                             # literal quoted prefix: joined
     ("Bash", 'rm -f "' + ROOT.replace("\\", "/") + '"/y.txt', None),  # ... and in-root is fine
     ("Bash", 'rm -f "a" /c/x/evil.txt', "W3"),                        # a space: separate words
     ("Bash", 'rm -f "/c/x"/e', "W3"),                                 # literal prefix judged itself
     ("Bash", 'rm -f "' + ROOT.replace("\\", "/") + '"/e', None),
     # brace expansion: no literal folder -> unresolved; mid-path -> the folder is judged
-    ("Bash", "mkdir {/c/x/a,b}", "W3-unresolved"),
-    ("Bash", "mkdir {a,/c/x/e}", "W3-unresolved"),
-    ("Bash", "mkdir -p {1..3}", "W3-unresolved"),
-    ("Bash", "touch {a,b}.txt", "W3-unresolved"),
+    ("Bash", "mkdir {/c/x/a,b}", "unjudged"),
+    ("Bash", "mkdir {a,/c/x/e}", "unjudged"),
+    ("Bash", "mkdir -p {1..3}", "unjudged"),
+    ("Bash", "touch {a,b}.txt", "unjudged"),
     ("Bash", "mkdir /c/x/{a,b}", "W3"),
     ("Bash", "touch /c/x/f{1..3}", "W3"),
     ("Bash", "mkdir C:\\x\\{a,b}", "W3"),
-    ("Bash", "mkdir /c/x*/{a,b}", "W3-unresolved"),                   # glob in the folder part
+    ("Bash", "mkdir /c/x*/{a,b}", "unjudged"),                   # glob in the folder part
     ("Bash", "mkdir " + ROOT + "\\{a,b}", None),                       # in-root folder: fine
     ("Bash", "mkdir working/{a,b}", None),
     ("Bash", "echo '{a,b}' > " + ROOT + "\\o.txt", None),              # quoted braces untouched
     ("Bash", "{ echo x; } > C:\\x\\evil.txt", "W3"),                   # a group, not an expansion
-    ("Bash", "mkdir C:\\x\\a(b", "W3-unresolved"),                    # unbalanced paren
+    ("Bash", "mkdir C:\\x\\a(b", "unjudged"),                    # unbalanced paren
     ("Bash", "mkdir \"C:\\Program Files (x86)\\evil\"", "W3"),          # balanced parens: judged
     ("Bash", "mkdir \"" + ROOT + "\\dir (x86)\"", None),                 # ... and in-root is fine
     ("Bash", "mkdir 'C:\\x\\a|b'", None),                             # pipe inside: junk
@@ -754,38 +747,38 @@ FP_CASES = [
     ("Bash", "echo x > /dev/fd/../../x/evil.txt", "W3"),
     # review round 1, items 3-4: a cd whose effect is not static leaves later relative targets
     # unresolved (in bash, `cd x | cat` does not change the cwd, so ../o.txt really is outside)
-    ("Bash", "cd working || true; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "cd working | cat; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "cd working & echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "true || cd working; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "(cd working; echo x > ../o.txt)", "W3-unresolved"),
-    ("Bash", "( cd working; echo x > ../o.txt )", "W3-unresolved"),
-    ("Bash", "if true; then cd working; fi; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "if cd working; then echo x > ../o.txt; fi", "W3-unresolved"),
-    ("Bash", "for d in a; do cd working; done; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "if false; then true; else cd working; fi; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "{ cd working; } ; echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "builtin cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "command cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "env cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "time cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "! cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "X=1 cd working && echo x > ../o.txt", "W3-unresolved"),
-    ("Bash", "cd C: && echo x > o.txt", "W3-unresolved"),               # drive-relative
-    ("Bash", "cd D:sub && echo x > o.txt", "W3-unresolved"),
-    ("PowerShell", "Set-Location HKLM:\\Software; Out-File -FilePath o.txt", "W3-unresolved"),
-    ("PowerShell", "Set-Location Env:; Out-File -FilePath o.txt", "W3-unresolved"),
+    ("Bash", "cd working || true; echo x > ../o.txt", "unjudged"),
+    ("Bash", "cd working | cat; echo x > ../o.txt", "unjudged"),
+    ("Bash", "cd working & echo x > ../o.txt", "unjudged"),
+    ("Bash", "true || cd working; echo x > ../o.txt", "unjudged"),
+    ("Bash", "(cd working; echo x > ../o.txt)", "unjudged"),
+    ("Bash", "( cd working; echo x > ../o.txt )", "unjudged"),
+    ("Bash", "if true; then cd working; fi; echo x > ../o.txt", "unjudged"),
+    ("Bash", "if cd working; then echo x > ../o.txt; fi", "unjudged"),
+    ("Bash", "for d in a; do cd working; done; echo x > ../o.txt", "unjudged"),
+    ("Bash", "if false; then true; else cd working; fi; echo x > ../o.txt", "unjudged"),
+    ("Bash", "{ cd working; } ; echo x > ../o.txt", "unjudged"),
+    ("Bash", "builtin cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "command cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "env cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "time cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "! cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "X=1 cd working && echo x > ../o.txt", "unjudged"),
+    ("Bash", "cd C: && echo x > o.txt", "unjudged"),               # drive-relative
+    ("Bash", "cd D:sub && echo x > o.txt", "unjudged"),
+    ("PowerShell", "Set-Location HKLM:\\Software; Out-File -FilePath o.txt", "unjudged"),
+    ("PowerShell", "Set-Location Env:; Out-File -FilePath o.txt", "unjudged"),
     ("Bash", "builtin cd working && echo x > " + _OUT, "W3"),          # absolute still judged
     ("Bash", "cd working && echo x > ../o.txt && echo y > ../p.txt", None),  # plain chain tracked
     ("Bash", "mkdir /c/x/evil", "W3"),                            # a plain path is still judged
     ("Bash", "cp a /etc", "W3"),                                  # not exactly / - still judged
     # FP3 variable prefix
-    ("Bash", "echo x > $D/src", "W3-unresolved"),
-    ("Bash", "echo x > ${D}/src", "W3-unresolved"),
-    ("Bash", "echo x > /tmp_err_$$", "W3-unresolved"),
-    ("Bash", "echo x > out_$1.txt", "W3-unresolved"),
-    ("Bash", "copy a %TEMP%\\x.txt", "W3-unresolved"),
-    ("Bash", "echo x > `pwd`/src", "W3-unresolved"),
+    ("Bash", "echo x > $D/src", "unjudged"),
+    ("Bash", "echo x > ${D}/src", "unjudged"),
+    ("Bash", "echo x > /tmp_err_$$", "unjudged"),
+    ("Bash", "echo x > out_$1.txt", "unjudged"),
+    ("Bash", "copy a %TEMP%\\x.txt", "unjudged"),
+    ("Bash", "echo x > `pwd`/src", "unjudged"),
     ("Bash", "echo x > C:\\src", "W3"),                           # the same target, literal, fires
     # FP5 cd tracking
     ("Bash", "cd working && echo x > ../out.log", None),
@@ -802,8 +795,8 @@ FP_CASES = [
     ("Bash", "cd /c/x && mkdir sub", "W3"),
     ("Bash", "pushd working && popd && echo x > ../o.txt", "W3"),  # popd restores the root cwd
     ("Bash", "cd working && echo x > " + _OUT, "W3"),               # absolute targets ignore cd
-    ("Bash", "cd $D && echo x > out.txt", "W3-unresolved"),         # unresolvable cd
-    ("Bash", "cd - && echo x > out.txt", "W3-unresolved"),
+    ("Bash", "cd $D && echo x > out.txt", "unjudged"),         # unresolvable cd
+    ("Bash", "cd - && echo x > out.txt", "unjudged"),
     ("Bash", "cd $D && echo x > " + ROOT + "\\ok.txt", None),       # absolute in-root after cd: fine
     ("Bash", "cd $D && echo x > " + _OUT, "W3"),                    # absolute outside after cd: fires
     ("Bash", "cd ~ && echo x > .claude/x.txt", None),               # home: ~/.claude is allowed
@@ -813,7 +806,7 @@ FP_CASES = [
 def run_self_test():
     """[failure, ...] - empty means every case behaved. Exercises evaluate_tool/evaluate_shell over
     TOOL_CASES/SHELL_CASES, a cross-project-root case (proving the root is read per session, not
-    baked in), the W3-unresolved exclusion, and the CLAUDE_WRITE_GUARD=log override."""
+    baked in), an unjudged $variable target giving no row, and the CLAUDE_WRITE_GUARD=log override."""
     import os as _os
     from hooklib.output import enforcing as _enforcing
 
@@ -883,8 +876,11 @@ def run_self_test():
     # 2026-10-17 false-positive fixes: each class has must-fire and must-not-fire cases
     for tool, cmd, want in FP_CASES:
         ev = {"tool_name": tool, "cwd": ROOT, "tool_input": {"command": cmd}}
-        rules_hit = {r for r, _ in evaluate_shell(ev)}
-        got = RULE_ID if RULE_ID in rules_hit else (UNRESOLVED_ID if UNRESOLVED_ID in rules_hit else None)
+        unj = []
+        rules_hit = {r for r, _ in evaluate_shell(ev, unj)}
+        got = RULE_ID if RULE_ID in rules_hit else ("unjudged" if unj else None)
+        if rules_hit - {RULE_ID}:
+            failures.append("W3 (FP fix) emitted a non-W3 row %r: %r" % (sorted(rules_hit), cmd[:90]))
         if got != want:
             failures.append("W3 (FP fix) expected %s got %s: %r" % (want, got, cmd[:90]))
 
@@ -954,13 +950,17 @@ def run_self_test():
             paths.settings_additional_dirs.cache_clear()
             paths.resolve_real_prefix.cache_clear()
 
-    # W3-unresolved: a $variable target is logged, never treated as a W3 violation, never denied
+    # an unjudged $variable target: no hit, no log row, never denied (the W3-unresolved row was
+    # removed 2026-10-20 - see the module docstring)
     ev_unres = {"tool_name": "Bash", "cwd": ROOT, "tool_input": {"command": "echo x > $DEST/out.txt"}}
-    hits_unres = evaluate_shell(ev_unres)
-    if not any(r == UNRESOLVED_ID for r, _ in hits_unres) or any(r == RULE_ID for r, _ in hits_unres):
-        failures.append("W3: a $variable target was not logged as W3-unresolved")
+    unj_unres = []
+    hits_unres = evaluate_shell(ev_unres, unj_unres)
+    if hits_unres or log_rows(ev_unres, [], hits_unres, 1):
+        failures.append("W3: a $variable target produced a hit or a log row: %r" % (hits_unres,))
+    if unj_unres != ["$DEST/out.txt"]:
+        failures.append("W3: a $variable target was not left unjudged: %r" % (unj_unres,))
     if decide(ev_unres, [], hits_unres, enforce=True) is not None:
-        failures.append("W3-unresolved denied even though it must never be enforceable")
+        failures.append("W3: a $variable target denied")
 
     # enforce-by-default: a real hit denies with no env override
     ev_hit = {"tool_name": "Write", "cwd": ROOT, "tool_input": {"file_path": "C:\\snap-f1\\x.md"}}

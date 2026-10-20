@@ -31,8 +31,8 @@ line once approved:
 
     python -I -S "C:/Users/ShadowEvil/.claude/hooks/write_guard.py" --log-only --enforce=W2
 
-  * `--log-only --enforce=W2`: every rule still logs; only W2 hits can deny. W3, W3-unresolved and
-    W4 stay log-only. `--enforce=W2,W3` would add W3; the flag is repeatable, ids are
+  * `--log-only --enforce=W2`: every rule still logs; only W2 hits can deny. W3, W4 and W5 stay
+    log-only. `--enforce=W2,W3` would add W3; the flag is repeatable, ids are
     case-insensitive, the flag name is as tolerant as --log-only's.
   * No `--enforce` at all: behaviour is exactly what it was before (plain `--log-only` denies
     nothing; no flags at all denies everything enforceable, W2 and W3 reasons joined).
@@ -40,7 +40,8 @@ line once approved:
     is also passed: only the listed enforceable rules may deny (2026-09-30 review fix - `--enforce=W2`
     alone used to enforce every rule). `--enforce` without `--log-only` is recorded in `.config` as
     `enforce-without-log-only`, since the intended line carries both.
-  * W4 (ALWAYS_LOG_ONLY) and W3-unresolved are never enforceable, even if listed. An unknown id, a
+  * W4 (ALWAYS_LOG_ONLY) is never enforceable, even if listed. An unknown id (the retired
+    W3-unresolved included, 2026-10-20), a
     bare `--enforce`, a misspelled flag or a stray word is ignored, never a crash, and is written
     to `<hits path>.config` (size-capped) so a typo in settings.json is visible.
   * A deny carries ONLY the reasons of enforced rules: a delete failing both W2 and W3 under
@@ -152,7 +153,7 @@ def _hit_target(item):
 
 def drop_superseded(hits):
     """In place: a module declaring SUPERSEDES = ("W3",) owns its targets - the superseded
-    module's hits on the SAME raw target (W3 and W3-unresolved alike) are removed, so one write is
+    module's hits on the SAME raw target are removed, so one write is
     one row (W5 over W3 for a temp write, 2026-10-18)."""
     for mod, th, sh, _ms in hits:
         owned_ids = getattr(mod, "SUPERSEDES", ())
@@ -210,11 +211,10 @@ def cli_value(argv, name):
 #
 # `--enforce=W2[,W3]` (repeatable) lists the rules that may DENY even while the hook runs
 # `--log-only`. Ids are matched case-insensitively. Only a rule module that can actually deny is
-# enforceable: W4 (ALWAYS_LOG_ONLY) and W3-unresolved (never a candidate for denial) are accepted
-# on the command line but ignored, and so is an unknown id - each is recorded in
-# `<hits path>.config` (output.record_config_issues), never raised.
-
-NEVER_ENFORCEABLE_EXTRA = ("W3-UNRESOLVED",)  # a hit id that is not itself a rule module's RULE_ID
+# enforceable: W4 (ALWAYS_LOG_ONLY) is accepted on the command line but ignored, and so is an
+# unknown id - each is recorded in `<hits path>.config` (output.record_config_issues), never raised.
+# W3-unresolved (row removed 2026-10-20) is no longer recognized: an old settings line naming it
+# takes the unknown-id path - recorded, never a crash, never a deny.
 
 
 def enforceable_ids():
@@ -230,7 +230,7 @@ def enforceable_ids():
 
 def known_ids():
     """Every id that is at least recognized (enforceable or deliberately not)."""
-    ids = set(NEVER_ENFORCEABLE_EXTRA)
+    ids = set()
     for mods in RULE_MODULES.values():
         for mod in mods:
             ids.add(mod.RULE_ID.upper())
@@ -252,7 +252,7 @@ def parse_enforce(argv):
     """(ids, issues): `ids` is the set of enforceable rule ids named by every `--enforce=` in argv
     (repeatable, comma-separated, case-insensitive, flag name tolerant in case and '_'/'-' like
     --log-only); `issues` is a list of ASCII strings describing anything ignored - an unknown id, a
-    non-enforceable id (W4, W3-unresolved), a bare `--enforce`, an unrecognized flag or stray word,
+    non-enforceable id (W4), a bare `--enforce`, an unrecognized flag or stray word,
     or `--enforce` given without `--log-only` (enforce-without-log-only).
     Never raises; with no `--enforce` at all it returns (set(), []) for a plain `--log-only` line, so
     today's command line parses exactly as before."""
@@ -345,8 +345,7 @@ def process(event, argv):
         rule_id = getattr(mod, "RULE_ID", None)
         for row in mod_rows:
             row = dict(row)
-            # only the module's OWN rule id can have denied (W3-unresolved rows share W3's module
-            # but never deny)
+            # only a row carrying the module's OWN rule id can have denied
             row["denied"] = bool(verdict) and row.get("rule") == rule_id
             rows.append(row)
     return rows, output.combine(*verdicts), issues
@@ -396,7 +395,9 @@ def enforce_self_test(failures):
         (["--log-only", "--enforce=W2,W9"], {"W2"}, ["unknown-id:W9"]),
         (["--log-only", "--enforce=W4"], set(), ["not-enforceable:W4"]),            # W4 never enforceable
         (["--log-only", "--enforce=W2,W4"], {"W2"}, ["not-enforceable:W4"]),
-        (["--log-only", "--enforce=W3-unresolved"], set(), ["not-enforceable:W3-UNRESOLVED"]),
+        # W3-unresolved retired 2026-10-20: an old line naming it is just an unknown id
+        (["--log-only", "--enforce=W3-unresolved"], set(), ["unknown-id:W3-UNRESOLVED"]),
+        (["--log-only", "--enforce=W2,W3-unresolved"], {"W2"}, ["unknown-id:W3-UNRESOLVED"]),
         (["--log-only", "--enforce"], set(), ["enforce-without-ids"]),              # bare flag
         (["--log-only", "--enforce="], set(), ["enforce-without-ids"]),
         (["--log-only"], set(), []),                                                # no flag: unchanged
@@ -418,7 +419,7 @@ def enforce_self_test(failures):
     check(enforceable_ids() == {"W2", "W3", "W5"}, "enforceable_ids() must be W2, W3 and W5 only, got %r"
           % sorted(enforceable_ids()))
 
-    # ---- events: W2 only, W3 only, W2+W3, W4 only, W3-unresolved only
+    # ---- events: W2 only, W3 only, W2+W3, W4 only, an unjudged $variable target (no row at all)
     ev_w2 = {"tool_name": "Bash", "cwd": root, "tool_input": {"command": "rm -rf build"}}
     ev_w3 = {"tool_name": "Bash", "cwd": root, "tool_input": {"command": "rm -rf /c/snap-f1"}}
     ev_both = {"tool_name": "Bash", "cwd": root, "tool_input": {"command": "rm -rf ../../x"}}
@@ -446,7 +447,7 @@ def enforce_self_test(failures):
         check({r for r, _ in hit_w3} == {"W3"}, "setup: ev_w3 must trip W3 only, got %r" % hit_w3)
         check({r for r, _ in hit_both} == {"W2", "W3"}, "setup: ev_both must trip W2 and W3, got %r" % hit_both)
         check("W4" in {r for r, _ in hit_w4}, "setup: ev_w4 must trip W4, got %r" % hit_w4)
-        check({r for r, _ in hit_unres} == {"W3-unresolved"}, "setup: ev_unres must trip W3-unresolved only")
+        check(hit_unres == set(), "setup: ev_unres must log no row at all, got %r" % (hit_unres,))
 
         # plain --log-only (no --enforce): nothing denies, every hit still logged (unchanged)
         for name, ev in (("W2", ev_w2), ("W3", ev_w3), ("W2+W3", ev_both), ("W4", ev_w4)):
@@ -479,9 +480,12 @@ def enforce_self_test(failures):
                         ["--enforce=W4", "--log-only"]):
             d, _r, flags = outcome(ev_w4, argv_w4)
             check(not d and ("W4", False) in flags, "W4 hit must never deny (%r)" % argv_w4)
-        d, _r, flags = outcome(ev_unres, ["--log-only", "--enforce=W3,W3-unresolved"])
-        check(not d and flags == {("W3-unresolved", False)},
-              "a W3-unresolved hit must never deny, even listed (%r)" % (flags,))
+        # 2026-10-20: an unresolvable $variable target logs NO W3-unresolved row and never denies,
+        # under full enforcement (no flags) or with W3 and the retired id both listed
+        for argv_unres in ([], ["--log-only", "--enforce=W3,W3-unresolved"]):
+            d, _r, flags = outcome(ev_unres, argv_unres)
+            check(not d and flags == set(),
+                  "a $variable target must log no row and never deny (%r): %r" % (argv_unres, flags))
         d, _r, flags = outcome(ev_w2, ["--log-only", "--enforce=W9"])
         check(not d and flags == {("W2", False)}, "an unknown id must enforce nothing (and not crash)")
         # both listed: W2 and W3 both enforced, reasons joined
@@ -832,7 +836,7 @@ def self_test():
 
     n_cases += enforce_self_test(failures)
 
-    # W5 supersedes W3 (2026-10-18): a temp target is ONE row, W5 - never also W3/W3-unresolved
+    # W5 supersedes W3 (2026-10-18): a temp target is ONE row, W5 - never also W3
     from hooklib import paths
     _tmp = paths.expand_short_names(os.path.normpath(tempfile.gettempdir()))
     _scr = _tmp + "\\claude\\slug\\5abc868e-b44c-4092-b407-b7e455c39e94\\scratchpad\\n.txt"
@@ -846,7 +850,7 @@ def self_test():
             ("Bash", {"command": "echo x > /tmp/a && echo y > C:\\x\\b"}, ["W3", "W5"]),
             ("Bash", {"command": "echo x > C:\\proj\\temp\\x"}, ["W3"])):
         _rows, _pm = run({"tool_name": _tool, "cwd": _root, "tool_input": _ti})
-        _got = sorted(r["rule"] for r in _rows if r["rule"] in ("W3", "W3-unresolved", "W5"))
+        _got = sorted(r["rule"] for r in _rows)  # every row: no stray rule may appear either
         if _got != _want:
             failures.append("W5/W3 de-dup: %s %r gave rows %r, want %r" % (_tool, _ti, _got, _want))
         n_cases += 1
