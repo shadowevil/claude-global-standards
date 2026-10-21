@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/model_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

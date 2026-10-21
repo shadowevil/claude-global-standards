@@ -22,7 +22,7 @@ The rules here target those costs directly.
 | `skills/adopt-project-standards/` | `~/.claude/skills/` | Brings an EXISTING project in line: measures its transcripts, classifies every local rule against the global standards, migrates in reviewed waves |
 | `skills/rule-hook-agent/` | `~/.claude/skills/` | When you state a new rule, records it and checks whether a hook can enforce it |
 | `skills/pattern-skill-agent/` | `~/.claude/skills/` | When the same work has been done three times, turns it into a skill |
-| `hooks/` | `~/.claude/hooks/` | The global write guard: W2 literal delete paths, W3 writes outside the project, W5 no system-temp writes (plus log-only rules); the S1 size flag for a project `.claude` over 1 GB |
+| `hooks/` | `~/.claude/hooks/` | The global write guard: W2 literal delete paths, W3 writes outside the project, W5 no system-temp writes (plus log-only rules); the S1 size flag for a project `.claude` over 1 GB; the M1 model reminder for an Agent call that sets no model (log-only) |
 | `install.py` | - | The installer: a dry run by default, backs up before replacing, never deletes, never touches `settings.json` |
 
 ## Quick start
@@ -92,6 +92,36 @@ project's `.claude\` (`CLAUDE_PROJECT_DIR`, else `cwd`), never `~/.claude`.
   checks. Folders over 1 GB: Helbreath 2.6 GB (all `.backups`), entityframeworkcpp 2.0 GB (all
   `worktrees`), hb-npc-wow-maker 4.2 GB (all `scratch`).
 
+**M1, the Agent model reminder (`hooks/model_guard.py`, LOG-ONLY).** Rule (user, 2026-10-21): pick the
+cheapest model that does the job well (Haiku for clear, fully specified actions including edits and
+bulk edits, Sonnet the default, Opus for design, security-sensitive code, hard debugging and
+attack-testing; a reviewer is never a lower tier than the author on security-sensitive code), and
+state the model and why in the brief. Partly hookable: whether the tier FITS the task is a judgment no
+hook can make, but whether the dispatcher picked one at all is visible. A PreToolUse hook on the
+`Agent` tool receives `tool_input.prompt`, `description`, `subagent_type` and `model` (Claude Code hooks
+reference). M1 fires when nothing picks a tier: no `model` on the call, no agent definition (project
+`.claude/agents`, a parent of the cwd, or `~/.claude/agents`) with a `model:` other than `inherit`, and
+no `CLAUDE_CODE_SUBAGENT_MODEL`. The subagent then runs on the main session's model (the documented
+order: call `model`, definition frontmatter, that variable, main model), and a "Model: Haiku" line in
+the brief does not change that. It stays silent for an unknown or plugin agent type it cannot verify, and for `claude-code-guide` (Haiku)
+and `statusline-setup` (Sonnet), which carry their own models. A project or user definition that reuses
+a built-in name (say `Explore` with `model: haiku`) overrides the built-in and is honoured; a file with
+no `---` header is not treated as a definition.
+- Advisory only: no `permissionDecision`, no deny. Default is log-only (rows to
+  `model_guard_hits.jsonl`, nothing printed); add `--advise` to the command to print the reminder as
+  `additionalContext`. `CLAUDE_MODEL_GUARD=log` forces log-only.
+- Not built, and why: check (ii), "haiku on a prompt that says hooks/delete/security" or "opus on a
+  lookup". Replayed over 1,247 Agent calls (2026-09-28 to 2026-10-21): 4 of 18 Haiku calls matched and
+  all 4 were false positives (a constant named `attack_impact_fraction`, "delete the six colour
+  constants", an NPC folder called `guard`, "hooks" in a version note); the Opus sample was legitimate
+  reviews and a self-justified inventory. The tier is a judgment, so the reminder text carries the
+  tiers instead.
+- Measured replay of M1 over those calls: 48 fires (3.8%), 5 of 5 hand-checked hits real (general-purpose, Explore and
+  Plan calls with no model set, which inherit the main session's). Measured 2026-10-21; the fire rate
+  of the live hook depends on how the dispatcher behaves once the rule is in its context.
+- Wiring: `hooks/model_guard_settings_snippet.json` (one PreToolUse entry, matcher `Agent`). Self-test:
+  `python -I -S -B hooks/model_guard.py --self-test`.
+
 **Strict git (optional):** `python install.py --strict-git --apply` appends
 `global/CLAUDE.git-strict.md` ("never commit on the default branch") to the installed `CLAUDE.md`.
 Pass the flag on every later install too, or the dry run reports `CLAUDE.md` as changed.
@@ -103,7 +133,7 @@ This repo is one person's live setup, and some lines name that machine:
   code page (cp1252, hence the ASCII rule).
 - `hooks/settings_snippet.json` and the usage line in `hooks/write_guard.py`'s docstring: the
   absolute path to `write_guard.py`. `hooks/size_guard_settings_snippet.json`: the path to
-  `size_guard.py`.
+  `size_guard.py`. `hooks/model_guard_settings_snippet.json`: the path to `model_guard.py`.
 - `skills/adopt-project-standards/SKILL.md` Step 1: the absolute path to `transcript_metrics.py`.
 - The hook self-test fixtures in `hooks/rules/` (`w2_literal_delete_paths.py`, `w3_outside_root.py`,
   `w5_temp_dir.py`) use `C:\Users\ShadowEvil\...` sample paths. Only the self-test reads them, so
