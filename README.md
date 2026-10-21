@@ -86,9 +86,13 @@ Concretely, after installing it:
 - `global/CLAUDE.md` describes the author's Windows machine in places (bare `python` rather than
   `python3`, a cp1252 console, rules quoted with the date the author made them). The rules hold on any
   machine; the descriptions may not match yours.
-- `project-setup` can copy a ticket system, a backup script, a changelog format and a metrics
-  script from the author's other projects. On a machine without those projects, the skill says so
-  and skips that part. It never invents a replacement.
+- `project-setup` ships its backup script, changelog format and metrics script in
+  `skills/project-setup/bundled/`, so those work everywhere. Two parts need sources of your own: a
+  ticket system and the C++ pack's longer wording and hooks. Point at them in
+  `~/.claude/project-setup.sources.json`, e.g.
+  `{"ticket_system": "C:\\path\\to\\ticket-system", "cpp_standards": "...", "cpp_hooks": "..."}`.
+  Without that file the skill says those parts are unavailable and skips them. It never invents a
+  replacement.
 
 ## Requirements
 

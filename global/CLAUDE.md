@@ -56,7 +56,7 @@ per-project CLAUDE.md and project memory).
   (`cat > f <<EOF`, `python - <<EOF`) and no PowerShell here-strings; they caused most quoting failures.
 - **Never `sed -i` (or rewrite through `>`) a tracked file from Git Bash:** it converts CRLF to LF and
   turns every line into a diff, hiding the real edit from review. Edit with the Edit tool or a
-  bytes-preserving script; verify with `diff --strip-trailing-cr`. (Helbreath, 2026-10-20.)
+  bytes-preserving script; verify with `diff --strip-trailing-cr`. (Measured, 2026-10-20.)
 - **Search code with the Grep tool** (or `grep`/`rg`), not PowerShell `Select-String`.
 - **CLAUDE.md files and an agent's own brief are already in context.** Never Read or grep them.
 - **PowerShell 5.1:** a trailing `Get-Process ... -ErrorAction SilentlyContinue` that matches nothing
@@ -90,7 +90,7 @@ per-project CLAUDE.md and project memory).
 - **A doc agents read that holds several standalone topics is a lean index plus a sidecar folder.**
   `topic.md` holds one line per entry: the path, what it covers, and WHEN to read it; the content lives
   in `topic/<entry>.md`. A lookup is one small index read, then one targeted read of the path it names,
-  never a whole-file read. (Measured 2026-10-20 over 1,482 Helbreath subagents: doc reads were 14% of
+  never a whole-file read. (Measured 2026-10-20 over 1,482 subagents: doc reads were 14% of
   all tool output pulled into context, mostly from a few single-file docs.)
 - The index points and never restates; binding rules stay stated in CLAUDE.md. Do not split a cohesive
   doc or one whose parts would be a few hundred bytes; give it a Contents block instead.

@@ -3,8 +3,8 @@
 Nothing here names a specific project. The root is always read from the event/environment:
 CLAUDE_PROJECT_DIR if the hook host sets it, else the event's own `cwd`. This is what lets the
 same file sit under any project's .claude/hooks/ OR under ~/.claude/hooks/ as a global hook
-without edits - ported verbatim from the Helbreath project hook's W3 section (hb_hooks.py) so a
-future change to one is a change to port to the other, not a divergent rewrite.
+without edits - ported verbatim from the origin project hook's W3 section, so a future change
+to one is a change to port to the other, not a divergent rewrite.
 """
 import ctypes
 import os

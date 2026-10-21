@@ -3,7 +3,7 @@ session's project root, ~/.claude, or (2026-09-28 audit fix) THIS session's own 
 scratchpad (<tempdir>\\claude\\<project-slug>\\<session_id>\\scratchpad\\...) - the per-session temp
 directory Claude Code's own system prompt tells every session to use, and which accounted for 67%
 of this hook's hits across a real cross-project replay before the fix (see hooklib.paths.
-session_scratchpad_regex). Ported from the Helbreath project hook's W3 section (hb_hooks.py),
+session_scratchpad_regex). Ported from the origin project hook's W3 section,
 generalized with no project-specific text anywhere: the deny message names no repo, no doc and no
 path that is not the caller's own.
 
@@ -484,7 +484,7 @@ def log_rows(event, tool_hits, shell_hits, ms):
     and `cwd` (2026-09-28, user decision on the week-long log-only rollout) let the week's hits be
     grouped per project and per calling directory once the real numbers come in - in particular,
     whether a project's own writes land under a DIFFERENT root than its own `cwd` (the
-    helbreath_war shared-.claude question) shows up directly as root != cwd in the log, not as
+    shared-.claude question) shows up directly as root != cwd in the log, not as
     something that has to be re-derived from `sample` text afterwards. `target` is the raw,
     unresolved string the hit was found on - the same value `sample` narrates in prose - kept as
     its own field so the log can be queried/grouped by target without re-parsing `sample`."""
@@ -983,9 +983,9 @@ def run_self_test():
     # a root switch: the SAME absolute path is a violation under one project root and fine under
     # another - proves the allow-list is derived per session, not hard-coded to any one project
     navicat = "C:\\Users\\ShadowEvil\\navicat-clone"
-    ev_helbreath_root = {"tool_name": "Write", "cwd": ROOT,
-                          "tool_input": {"file_path": navicat + "\\src\\x.ts"}}
-    if not evaluate_tool(ev_helbreath_root):
+    ev_this_root = {"tool_name": "Write", "cwd": ROOT,
+                    "tool_input": {"file_path": navicat + "\\src\\x.ts"}}
+    if not evaluate_tool(ev_this_root):
         failures.append("W3: a write into a different project's tree was not flagged when root=" + ROOT)
     ev_navicat_root = {"tool_name": "Write", "cwd": navicat,
                         "tool_input": {"file_path": navicat + "\\src\\x.ts"}}
@@ -1042,7 +1042,7 @@ def run_self_test():
             msg.encode("ascii")
         except UnicodeEncodeError:
             failures.append("a W3 message is not ASCII")
-        if "helbreath" in msg.lower() or "claude.md" in msg.lower():
+        if "claude.md" in msg.lower():
             failures.append("a W3 message names a project-specific doc")
 
     # 8.3 root fix (2026-09-28 review): paths.project_root()/home_dir() never expanded short (8.3)
@@ -1098,7 +1098,7 @@ def run_self_test():
 
     # garbage-realpath-shape fix (2026-09-28 hotfix): a mis-extracted shell "target" (a nested-quote
     # nightmare inside a `python -c` heredoc, misread as a redirect by find_redirects - real
-    # transcript, helbreath_war session 01eefde5...) does not make os.path.realpath raise; it can
+    # transcript, session 01eefde5...) does not make os.path.realpath raise; it can
     # hand back a nonsense string that shares no prefix with any real root, turning a harmless
     # extraction into a false W3 hit. paths.resolve_real_prefix must trust realpath's own output
     # only when it is still drive-letter or UNC shaped, else fall back to the pre-realpath value.
