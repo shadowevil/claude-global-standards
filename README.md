@@ -102,12 +102,17 @@ been run on a real Mac or Linux machine yet.
 
 ## Install
 
+The quickest route is the one-paste prompt in [Set it up with Claude](#set-it-up-with-claude). By
+hand, clone into `~/.claude/scratch/` (the same place the prompt uses, so
+[updating](docs/getting-started.md#updating) works the same either way). In PowerShell, write
+`$HOME` instead of `~`.
+
 ```bash
-git clone https://github.com/shadowevil/claude-global-standards.git
+git clone https://github.com/shadowevil/claude-global-standards.git ~/.claude/scratch/claude-global-standards
 ```
 
 ```bash
-cd claude-global-standards
+cd ~/.claude/scratch/claude-global-standards
 ```
 
 Dry run, then install the rules, docs and skills:
@@ -159,36 +164,65 @@ Pass the flag on every later install too, or the dry run reports `CLAUDE.md` as 
 
 ## Set it up with Claude
 
-Paste this into a new Claude Code session, opened in the folder where you keep your code:
+One paste does the whole setup. Open Claude Code in any folder and paste the prompt below. Claude
+clones this repo into `~/.claude/scratch/claude-global-standards`, reads it, runs the dry runs, then
+asks you **one** question with the whole plan in front of you, installs what you chose, and checks
+the result. The clone is the only thing written before you answer. (Claude Code may still ask its
+own permission prompts for writes outside the folder you opened; those are separate.) Keep the
+clone: it is how you [update](docs/getting-started.md#updating) later.
 
 ```text
-Set up the claude-global-standards toolkit on my machine.
+Set up the claude-global-standards toolkit on my machine, start to finish, in this session.
 
-1. Clone it with git, here: `git clone https://github.com/shadowevil/claude-global-standards.git`,
-   then work inside the new claude-global-standards folder. If the folder already exists, run
-   `git status` there and tell me what you find instead of cloning again.
-2. Read README.md, install.py, global/CLAUDE.md and hooks/RULES.md in full, then tell me in plain
-   words what will be installed and what it will change.
-3. Run `python install.py` (or `python3` if `python` is not found). It is a dry run. Show me every file
-   it would add or change. If I already have ~/.claude/CLAUDE.md, show me what is in mine that the new
-   one lacks, and propose a merge. Make the merge in the clone's global/CLAUDE.md (keep its
-   {{...}} placeholders as they are), never in ~/.claude/CLAUDE.md, and re-run the dry run.
-4. After I approve, run `python install.py --apply` and confirm the installed ~/.claude/CLAUDE.md
-   matches what I approved.
-5. Hooks: explain what the write guard (W2, W3, W5), S1 and M1 each do, that all of them start
-   without blocking anything, and how enforcement is turned on later. If I want them, run
-   `python install.py --only hooks --hooks --apply`, then `python install.py --only hooks --wire-hooks`
-   and show me the settings.json entries it would add. Run that last command again with `--apply`
-   only after I approve those entries.
-6. Verify: list the installed skills, and if hooks were installed, run each hook's self-test with my
-   home folder written out as an absolute path, e.g.
-   `python -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test`. Report each result as
-   passed or failed with its numbers.
-7. Tell me how to use the two main skills: "set up this project's workflow" in a new project and
-   "adopt the standards" in an existing one.
+Ground rules for this whole task: write only inside ~/.claude (on Windows %USERPROFILE%\.claude).
+Write files with your file-writing tool, never with heredocs. Delete nothing. Ask me exactly one
+question (step 5); before I answer, the clone in step 1 is the only thing you write. Write my home
+folder out as an absolute path with forward slashes in every command (PowerShell does not expand ~
+for other programs), and quote every path. Do not cd; run the installer by its full path, which
+works from any folder. <clone> below means "<home>/.claude/scratch/claude-global-standards".
 
-Do not write outside the cloned folder and ~/.claude, do not use heredocs to write files, and do not
-delete anything without asking me first.
+1. Tools: run `git --version`, then `python --version`, `python3 --version` and, on Windows,
+   `py -3 --version`. Use the first Python that reports 3.10 or newer as <py>. If git or a Python
+   3.10+ is missing, stop and tell me how to install it.
+2. Get the repo:
+   - If "<clone>" exists, run `git -C "<clone>" status --short` and `git -C "<clone>" log -1 --oneline`
+     and tell me what you found. Use it as it is; if I want a newer version, I will run
+     `git -C "<clone>" pull` myself.
+   - Otherwise run `git clone https://github.com/shadowevil/claude-global-standards.git "<clone>"`
+     (git creates the folders) and report `git -C "<clone>" log -1 --oneline`.
+3. Read "<clone>/README.md", "<clone>/docs/getting-started.md", "<clone>/install.py",
+   "<clone>/global/CLAUDE.md" and "<clone>/hooks/RULES.md" in full.
+4. Dry runs, nothing written: `<py> "<clone>/install.py"` and
+   `<py> "<clone>/install.py" --only hooks --hooks --wire-hooks`. If ~/.claude/CLAUDE.md already
+   exists, compare it with "<clone>/global/CLAUDE.md" and list every rule of mine the new file lacks,
+   with a proposed merge. If the first dry run shows nothing to add or change and either
+   ~/.claude/hooks does not exist or the hooks dry run also shows nothing, say the toolkit is already
+   installed and current (hooks are optional), and stop.
+5. One question. First show a short plan: what will be installed; every file that will be replaced
+   (each is backed up first); my rules that would be lost and the merge you propose; one line per
+   hook (write guard W2/W3/W5 and log-only W4: writes and deletes; S1: a message when a project's
+   .claude folder passes 1 GB; M1: logs agent calls that pick no model) and the exact settings.json
+   entries they would add. Then ask, with these options:
+   - "Install rules and skills" (recommended; applies the proposed merge if I have a CLAUDE.md)
+   - "Install rules, skills and hooks" (the same, plus the hooks; they are advisory and block nothing)
+   - "Skills only, keep my CLAUDE.md"
+   - "Change something first" (I will say what, or say stop)
+6. Do what I chose:
+   - A merge goes into "<clone>/global/CLAUDE.md" (keep its {{...}} placeholders), never into
+     ~/.claude/CLAUDE.md; re-run the dry run and confirm it shows the merged file.
+   - Rules and skills: `<py> "<clone>/install.py" --apply`. Skills only:
+     `<py> "<clone>/install.py" --only skills --apply`.
+   - Hooks: `<py> "<clone>/install.py" --only hooks --hooks --apply`, then
+     `<py> "<clone>/install.py" --only hooks --wire-hooks --apply`.
+7. Verify, and report each item as passed or failed with its numbers:
+   - `<py> "<clone>/install.py"` shows 0 files to add or change (for "Skills only": add `--only skills`).
+   - The four skills exist under ~/.claude/skills/.
+   - With hooks: `<py> "<clone>/install.py" --only hooks --hooks --wire-hooks` shows 0 files and
+     every entry already wired, and `<py> -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test`
+     passes, and the same for size_guard.py and model_guard.py.
+8. Finish by telling me: start a new Claude Code session so the rules load; say "set up this
+   project's workflow" in a new project or "adopt the standards" in an existing one; and how hook
+   blocking is turned on later (hooks/RULES.md).
 ```
 
 ## How changes flow
