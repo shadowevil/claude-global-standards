@@ -70,6 +70,15 @@ per-project CLAUDE.md and project memory).
 - **Briefs are self-contained:** intent (edit / read-only / propose-then-edit), goal, where (each location
   tagged verified / located / guess), constraints, done-when, report shape - and the model chosen and
   why. Never orient in the main session's context; if the location is unknown, say where to start.
+- **Pick the cheapest model that does the job well** (user rule, 2026-10-21), unless the project's
+  CLAUDE.md sets its own. Haiku for clear, fully specified actions: "edit this line, in this
+  document", bulk edits ("edit these lines in these documents"; the user: "Haiku, now with the 5.5
+  release, can do more than just read-only work"), and mechanical lookups, counts, extracts and
+  reformats. Sonnet is the default: edits that follow an existing pattern, checklist reviews against
+  a clear spec, verification runs, docs. Opus for design and new frameworks, security-sensitive code
+  (anything that denies, deletes or guards writes), hard debugging, ambiguous classification and
+  attack-testing. A reviewer is never a lower tier than the author on security-sensitive code. An
+  agent whose report shows it was out of its depth is re-run one tier up, not patched around.
 - **One agent per write area at a time.** Within one task, resume the same agent with SendMessage;
   start fresh at task boundaries.
 - **Code changes get a separate read-only review agent** before commit (a project may narrow this for

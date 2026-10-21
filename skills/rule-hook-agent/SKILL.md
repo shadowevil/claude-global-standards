@@ -37,8 +37,9 @@ several rules is one brief.
 
 ## Step 2 - dispatch the hooks agent
 
-Agent type `claude`, background; the project's model rules, else Sonnet to add a rule to an existing
-framework and Opus when there is none yet or the rule is hard to classify. One hooks agent at a time -
+Agent type `claude`, background; the project's model rules, else the global model-tier rule: Sonnet
+to add a log-only or advisory rule to an existing framework, Opus when there is no framework yet, the
+rule is hard to classify, or it can deny, delete or guard writes. One hooks agent at a time -
 if one is running (`ListAgents`), SendMessage it the rule instead.
 
 > You ARE the hooks agent: do the work below yourself. Do not load the rule-hook-agent skill and do
@@ -80,8 +81,9 @@ if one is running (`ListAgents`), SendMessage it the rule instead.
 
 ## Step 3 - after it reports
 
-1. **Review phase, never skipped.** A second `claude` agent (Sonnet, read-only: it reports and edits
-   nothing) audits the staged rule and tries to break it. Findings go back to the hooks agent, and a
+1. **Review phase, never skipped.** A second `claude` agent (Sonnet, or Opus when the rule can deny,
+   delete or guard writes - never a lower tier than the author on such a rule; read-only: it reports
+   and edits nothing) audits the staged rule and tries to break it. Findings go back to the hooks agent, and a
    changed stage is reviewed again before install.
 2. Install into the project: back up `.claude/hooks/` and `.claude/settings.json` as the project
    requires, copy the staged files in, re-run the self-test from the live path, and point the rule's

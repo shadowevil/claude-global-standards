@@ -39,8 +39,8 @@ skill). A step that varied is either a parameter of the skill or a sign the patt
 
 ## Step 2 - draft (one agent)
 
-Agent type `claude`, background; the project's model rules, else Sonnet by default and Opus when the
-instances disagree or an earlier draft failed. One skills agent at a time; if one is running
+Agent type `claude`, background; the project's model rules, else the global model-tier rule:
+Sonnet by default and Opus when the instances disagree or an earlier draft failed. One skills agent at a time; if one is running
 (`ListAgents`), SendMessage it instead. Brief it with the ledger rows and:
 
 > Draft `SKILL.md` for the pattern "<pattern>" in the project's scratch directory, never in the

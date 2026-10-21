@@ -73,8 +73,9 @@ Gather, then report in at most 10 lines before asking anything:
 Scratch is not asked: it is fixed globally at `.claude/scratch/<role>/<task>/` (gitignored).
 
 **Round D - extras** (up to 3 questions):
-1. Models: strongest for complex work and cheaper for general work (recommended) / strongest always /
-   cheaper always. Each brief's `model:` comes from this.
+1. Models: the global model-tier rule (recommended: Haiku for fully specified edits, Sonnet by
+   default, Opus for design and security-sensitive work) / strongest always / cheaper always. Each
+   brief's `model:` comes from this; with the global rule, set it per role from that role's usual work.
 2. Metrics baseline (recommended with a team) / none.
 3. Language packs, only when a detected language has one: "C++ house style" / "none" (more options
    as packs are added).
