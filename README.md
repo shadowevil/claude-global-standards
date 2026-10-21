@@ -13,6 +13,9 @@ about 4,600 session transcripts showed where agent time and tokens actually go:
 
 The rules here target those costs directly.
 
+**New to Claude Code?** Start with [docs/getting-started.md](docs/getting-started.md): what you get,
+how to install it, and what your first day looks like.
+
 ## What this toolkit does
 
 Concretely, after installing it:
