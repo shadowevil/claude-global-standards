@@ -64,19 +64,20 @@ missing and skips them.
 
 ## Install
 
-The easiest route is to let Claude do it with you. Open Claude Code in the folder where you keep
-your code and paste the prompt from the README's
-[Set it up with Claude](../README.md#set-it-up-with-claude) section. Claude clones the repo, explains
-what will change, and asks you before it installs anything or wires hooks.
+The easiest route is one paste. Open Claude Code in any folder and paste the prompt from the
+README's [Set it up with Claude](../README.md#set-it-up-with-claude) section. Claude clones the repo
+into `~/.claude/scratch/claude-global-standards`, explains what will change, asks you one question
+with the whole plan in front of you, then installs and checks the result. (Claude Code may also show
+its own permission prompts while it works; those are separate from that one question.)
 
-To do it by hand, run these one at a time:
+To do it by hand, run these one at a time (in PowerShell, write `$HOME` instead of `~`):
 
 ```bash
-git clone https://github.com/shadowevil/claude-global-standards.git
+git clone https://github.com/shadowevil/claude-global-standards.git ~/.claude/scratch/claude-global-standards
 ```
 
 ```bash
-cd claude-global-standards
+cd ~/.claude/scratch/claude-global-standards
 ```
 
 ```bash
@@ -122,18 +123,21 @@ Hooks are optional and can wait until you have used the toolkit for a few days. 
 - **You want to undo the install.** Every file the installer replaced is saved under
   `~/.claude/staging/install-backups/<date-time>/`; copy back what you want. To remove the toolkit,
   delete the files from the list you saved (the README's Layout table shows where each part goes).
-  If you wired hooks, restore `settings.json` from `~/.claude/staging/install-backups/settings-<date-time>/`.
+  If you wired hooks, restore `settings.json` from
+  `~/.claude/staging/install-backups/settings-<date-time>/`.
 
 ## Updating
 
-New versions arrive through git. From the folder you cloned into:
+New versions arrive through git, in the clone at `~/.claude/scratch/claude-global-standards`
+(in PowerShell, write `$HOME` instead of `~`):
 
 ```bash
-git -C claude-global-standards status
+git -C ~/.claude/scratch/claude-global-standards status
 ```
 
 If it shows changes of your own (a merged `CLAUDE.md`, say), commit them on a branch of your own
-first. Then update with `git -C claude-global-standards pull`, run `python install.py` for a dry
-run, and `--apply` once you have looked at the changes. If you installed hooks, also run
-`python install.py --only hooks --hooks --apply`. Run the pull yourself: the rules tell Claude never
-to pull, so it will ask you to.
+first. Then update with `git -C ~/.claude/scratch/claude-global-standards pull`, and from inside
+that folder run `python install.py` for a dry run and `--apply` once you have looked at the
+changes. If you installed hooks, also run `python install.py --only hooks --hooks --apply`, and
+`python install.py --only hooks --wire-hooks` to see whether a new hook needs wiring (add `--apply`
+to wire it). Run the pull yourself: the rules tell Claude never to pull, so it will ask you to.
