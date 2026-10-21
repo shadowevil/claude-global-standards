@@ -29,7 +29,7 @@ Helbreath SDL has". The workflow it installs is `references/workflow.md` (its on
 | Component | Canonical source |
 |---|---|
 | Ticket system | `C:\Users\ShadowEvil\source\master-ticket-site\ticket-system` - follow its `docs\ADOPTING.md` end to end (owner: the Ticket Master session) |
-| Backup tool | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\src\tools\scripts\backup.py`, as of Helbreath commit `426748ae` (hardened 2026-10-20 after a Ticket Master fault report). Owner: Helbreath SDL3. |
+| Backup tool | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\src\tools\scripts\backup.py`, as of Helbreath commit `9ae37130` (hardened 2026-10-20 after a Ticket Master fault report and an audit). Owner: Helbreath SDL3. |
 | Changelog format | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\docs\changelog_format.md` |
 | Metrics baseline | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\metrics\subagent_baseline.py` |
 | C++ pack | `packs/cpp-house-style.md` |
@@ -117,9 +117,10 @@ entry "Workflow adopted <date> via project-setup: <choices>".
   Helbreath names and areas).
 - **Backups:** copy only the hardened version (component table). First confirm Helbreath's working
   file still matches it: `git -C "C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath" diff --quiet
-  426748ae -- src/tools/scripts/backup.py` must exit 0. If it does not, stop and ask the Helbreath PM
-  whether the newer version is reviewed; never copy an unreviewed one (the older `backup.ps1` and the
-  first `backup.py` could delete outside their backup folder). The script finds the repo root as
+  9ae37130 -- src/tools/scripts/backup.py` must exit 0. If it does not, stop and ask the Helbreath PM
+  whether the newer version is reviewed; never copy an unreviewed one (the older `backup.ps1` and
+  earlier `backup.py` versions could delete outside their backup folder, or delete an existing file
+  passed as `--new-files`). The script finds the repo root as
   `Path(__file__).resolve().parents[3]`, which is right only three folders deep: copy it to
   `<repo>\src\tools\scripts\backup.py` (or another path exactly three deep), or change that index to
   this project's depth. Then prove it before relying on it, from the project root:
