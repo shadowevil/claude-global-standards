@@ -11,8 +11,9 @@ global skills and the global hooks. Changes are made here, reviewed, committed, 
 - **Skill and hook changes still go through the review phase** (global rule): stage the change here,
   have a separate read-only agent review it, and only then commit and install it. A hotfix is no
   exception.
-- **Global hooks need the user's approval to install** (global rule). The installer never wires hooks
-  into `settings.json`; that stays a manual, approved step.
+- **Global hooks need the user's approval to install** (global rule). The installer touches
+  `settings.json` only through `install.py --wire-hooks --apply`, which only adds missing entries;
+  run it only after the user approves that wiring.
 - **Changes to `global/CLAUDE.md` need the user's approval** before they are installed, and never on
   another session's request alone.
 - **Install with `python install.py`** (dry run: shows every file it would add or change) and
@@ -27,5 +28,8 @@ global skills and the global hooks. Changes are made here, reviewed, committed, 
 - `global/CLAUDE.git-strict.md` - appended to the installed `CLAUDE.md` only with `install.py --strict-git`.
 - `global/docs/` - machine-wide docs (the documentation standard), install to `~/.claude/docs/`.
 - `skills/<name>/` - each installs to `~/.claude/skills/<name>/`.
-- `hooks/` - installs to `~/.claude/hooks/` (code only; wiring is manual, see README).
+- `hooks/` - installs to `~/.claude/hooks/` with `--hooks`; `--wire-hooks` adds the wiring (see README).
+  `hooks/RULES.md` documents each rule.
+- Files carry `{{CLAUDE_HOME}}`, `{{CLAUDE_HOME_FWD}}` and `{{PYTHON}}` placeholders where a path or
+  the Python command would go; `install.py` fills them per machine. Never hard-code a user path.
 - `install.py` - the installer. `README.md` - for anyone adopting this.

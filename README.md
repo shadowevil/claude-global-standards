@@ -1,8 +1,9 @@
 # claude-global-standards
 
-A machine-wide setup for [Claude Code](https://claude.com/claude-code): global instructions, skills
-and hooks that make every Claude session and agent on a machine work the same disciplined way, plus
-skills that set up new projects and bring existing projects in line.
+A ready-made, machine-wide setup for [Claude Code](https://claude.com/claude-code). Installing it
+gives every Claude Code session on your computer, and every agent those sessions start, the same set
+of working rules, four skills and three optional safety hooks. It is one developer's daily setup,
+published so that someone else can start from a setup that already works instead of an empty one.
 
 It grew out of a real multi-agent game project and is shaped by measurement, not taste. Analysing
 about 4,600 session transcripts showed where agent time and tokens actually go:
@@ -12,22 +13,87 @@ about 4,600 session transcripts showed where agent time and tokens actually go:
 
 The rules here target those costs directly.
 
-## What's in it
+## What this toolkit does
 
-| Path | Installs to | What it does |
-|---|---|---|
-| `global/CLAUDE.md` | `~/.claude/CLAUDE.md` | Loaded into every session and agent: safety rails (write scope, literal delete paths, git), working habits, dispatching rules, the lean-index docs rule |
-| `global/docs/documentation_standards.md` | `~/.claude/docs/` | How to structure docs as lean index files plus sidecar folders, so a lookup is one small index read plus one targeted read |
-| `skills/project-setup/` | `~/.claude/skills/` | Interactive setup of a NEW project: CLAUDE.md, agent team briefs, team workflow, tickets, changelogs, backups, metrics, language packs |
-| `skills/adopt-project-standards/` | `~/.claude/skills/` | Brings an EXISTING project in line: measures its transcripts, classifies every local rule against the global standards, migrates in reviewed waves |
-| `skills/rule-hook-agent/` | `~/.claude/skills/` | When you state a new rule, records it and checks whether a hook can enforce it |
-| `skills/pattern-skill-agent/` | `~/.claude/skills/` | When the same work has been done three times, turns it into a skill |
-| `hooks/` | `~/.claude/hooks/` | The global write guard: W2 literal delete paths, W3 writes outside the project, W5 no system-temp writes (plus log-only rules); the S1 size flag for a project `.claude` over 1 GB; the M1 model reminder for an Agent call that sets no model (log-only) |
-| `install.py` | - | The installer: a dry run by default, backs up before replacing, never deletes, never touches `settings.json` |
+Concretely, after installing it:
 
-## Quick start
+1. **Every session reads the same global rules.** Claude Code loads `~/.claude/CLAUDE.md` into every
+   session and every agent. This repo's version sets:
+   - **Safety rails:** write only inside the session's project folder and `~/.claude`; delete only by
+     literal absolute paths; never pull, `reset --hard`, force-push or rewrite git history; push only
+     when asked; never kill a process the session did not start.
+   - **Working habits:** no heredocs, no `sed -i` on tracked files, ASCII console output, scratch
+     files inside the project rather than the system temp folder.
+   - **Agent dispatch:** only the main session starts agents; briefs are self-contained; every code
+     change gets a separate read-only reviewer; which model (Haiku, Sonnet, Opus) fits which job.
+   - **Docs:** the lean-index rule, so agents read one small index and one targeted file instead of
+     a whole large doc.
+2. **Four skills become available in every project:**
+   - `project-setup`: say "set up this project's workflow" in a new project. It interviews you with
+     clickable questions, shows a plan, then writes a project `CLAUDE.md`, agent team briefs, a team
+     workflow, and optionally tickets, changelogs, backups, a metrics baseline and language packs.
+   - `adopt-project-standards`: say "adopt the standards" in an existing project. It measures the
+     project's past sessions, sorts every local rule into duplicates, narrows, conflicts or missing,
+     and migrates in waves you approve.
+   - `rule-hook-agent`: when you state a new rule ("from now on, never ..."), it records the rule and
+     checks whether a hook can enforce it.
+   - `pattern-skill-agent`: when the same work has been done three times, it turns it into a skill.
+3. **Three hooks, only if you ask for them** (details in [hooks/RULES.md](hooks/RULES.md)):
+   - **Write guard (W2, W3, W5):** checks every write and delete before it runs. It ships
+     **log-only**: it records what it would have blocked and blocks nothing until you turn
+     enforcement on.
+   - **S1 size flag:** tells the session when a project's `.claude` folder passes 1 GB and what to
+     prune first. It never blocks and never deletes.
+   - **M1 model reminder:** records Agent calls that pick no model. It ships log-only and never blocks.
 
-Requirements: Claude Code, Python 3.10+, git. Developed on Windows 11 with Git Bash and PowerShell.
+## What the installer changes on your machine
+
+- **Writes only under `~/.claude`** (`%USERPROFILE%\.claude` on Windows): `CLAUDE.md`, `docs/`,
+  `skills/<name>/` for the four skills, and with `--hooks`, `hooks/`.
+- **Replaces your `~/.claude/CLAUDE.md` if you have one.** It backs the old file up first, but it
+  does not merge. If you already have global rules, merge them into the clone's `global/CLAUDE.md`
+  before installing (or ask Claude to; the setup prompt below does). That leaves local changes in
+  the clone, so commit them on a branch of your own before you next update it. A merge made directly in
+  `~/.claude/CLAUDE.md` is replaced again by the next install that includes the rules.
+- **Backs up every file it replaces** under `~/.claude/staging/install-backups/<timestamp>/`.
+- **Never deletes anything.** Files in `~/.claude` that this repo does not ship are listed as
+  "extra (left alone)".
+- **Fills in your paths.** The repo's files contain placeholders (`{{CLAUDE_HOME}}`,
+  `{{CLAUDE_HOME_FWD}}`, `{{PYTHON}}`). The installer replaces them with your home folder and your
+  Python command as it copies, so nothing in the repo needs editing first. It detects `python` or
+  `python3` and checks it is 3.10 or newer (`--python` overrides it). The self-test covers home
+  folders with spaces and non-ASCII characters; a home path containing `"`, `$` or a backtick is
+  refused, because the shell that runs hook commands would break on it.
+- **Edits `~/.claude/settings.json` only with `--wire-hooks --apply`**, and then only adds entries:
+  one per hook script that is not already wired, after a backup under
+  `~/.claude/staging/install-backups/settings-<timestamp>/`. It never changes or removes an entry
+  you already have, but it does rewrite the file's formatting (2-space indent, no byte-order mark).
+  A `settings.json` it cannot parse, or one with an unexpected shape, is refused and left alone.
+- **Dry run by default.** Without `--apply` nothing is written; it lists each file as ADD or CHANGE.
+
+## What it does not do
+
+- It does not install Claude Code, Python or git.
+- It does not change any project. Project files are only written when you run `project-setup` or
+  `adopt-project-standards` inside a project, and both show their plan before writing.
+- It does not turn on blocking. Hook enforcement stays off until you add `--enforce=` yourself.
+- It does not send anything anywhere. No telemetry; hit logs stay in `~/.claude/hooks/`.
+
+**Some content is still the author's own** and is worth reading before you install:
+- `global/CLAUDE.md` describes the author's Windows machine in places (bare `python` rather than
+  `python3`, a cp1252 console, rules quoted with the date the author made them). The rules hold on any
+  machine; the descriptions may not match yours.
+- `project-setup` can copy a ticket system, a backup script, a changelog format and a metrics
+  script from the author's other projects. On a machine without those projects, the skill says so
+  and skips that part. It never invents a replacement.
+
+## Requirements
+
+Claude Code, Python 3.10 or newer, and git. Developed and used daily on Windows 11 (Git Bash and
+PowerShell). The installer's self-test covers macOS and Linux home folders, but the toolkit has not
+been run on a real Mac or Linux machine yet.
+
+## Install
 
 ```bash
 git clone https://github.com/shadowevil/claude-global-standards.git
@@ -37,6 +103,8 @@ git clone https://github.com/shadowevil/claude-global-standards.git
 cd claude-global-standards
 ```
 
+Dry run, then install the rules, docs and skills:
+
 ```bash
 python install.py
 ```
@@ -45,105 +113,76 @@ python install.py
 python install.py --apply
 ```
 
-The first `install.py` is a dry run listing every file it would add or change. `--apply` installs
-the global instructions, docs and skills, backing up anything it replaces under
-`~/.claude/staging/install-backups/<timestamp>/`.
+Optional hooks: copy the hook code, preview the `settings.json` change, then wire them.
+`--only hooks` keeps these runs from reinstalling `CLAUDE.md` and the skills:
 
-**Hooks are opt-in, in two steps:**
-1. `python install.py --hooks --apply` copies the hook code.
-2. Wire it yourself by merging `hooks/settings_snippet.json` into the `hooks.PreToolUse` list of
-   `~/.claude/settings.json`. The installer never edits `settings.json`. A global hook affects every
-   session, so turning it on is a deliberate step.
+```bash
+python install.py --only hooks --hooks --apply
+```
 
-The snippet ships log-only: `--log-only` with no `--enforce=` records every hit and denies nothing.
-Read `~/.claude/hooks/write_guard_hits.jsonl` (or run `hooks/hits_summary.py`) for a week, then add
-`--enforce=W2,W3,W5` (or a subset) to the command in `settings.json` to let those rules deny. Keep
-`--log-only` on the line either way: an `--enforce=` list then names the only rules that may deny.
+```bash
+python install.py --only hooks --wire-hooks
+```
 
-**S1, the `.claude` size flag (`hooks/size_guard.py`, flags from day one).** Rule (user, 2026-10-20):
-"if the agents local .claude directory gets bigger than 1gb, it needs to prune any temporary files
-and address the bloat", to be checked "whenever that directory is greped or used". It is partly
-hookable: a hook can measure the folder and tell the agent, but it can't judge what is temporary. So S1
-only ever flags. It adds `additionalContext`, never denies and never deletes (user ruling,
-2026-10-20: "a flag to the agent/PM to prune it. Not necessarily blocking"). "Local" means the
-project's `.claude\` (`CLAUDE_PROJECT_DIR`, else `cwd`), never `~/.claude`.
-- Events: SessionStart and UserPromptSubmit reach the main session. PreToolUse on
-  Read/Grep/Glob/Write/Edit/MultiEdit/NotebookEdit/Bash/PowerShell fires only when the target is
-  inside `<project>\.claude`, and reaches whoever made the call, main session or subagent. Subagents
-  get a "report it, prune only if your brief allows writes" wording.
-- Message: the size, the top 5 subfolders, prune `.claude\scratch\` first with literal paths (the
-  step is left out when scratch is empty), and leave worktrees, metrics, docs, design, backups and
-  tickets to the user.
-- Cache: one state file beside the script (`size_guard_state.jsonl`, never inside a project).
-  The folder is re-measured at most every 10 min, or every 2 min while it is over the limit or after
-  a walk the 3 s cap cut short. `--limit-mb=`, `--ttl-minutes=`, `--over-ttl-minutes=` and
-  `--budget-seconds=` override these.
-- How often it flags, per project and recipient (the main session, or each subagent): at most once
-  per 10-min window while pruning scratch alone could get the folder under the limit. When even
-  deleting all of scratch could not, it flags once per session (user ruling, 2026-10-20). In both
-  cases a SessionStart after `/clear` or a compaction flags the main session again, since the earlier
-  flag has left its context. A hook process that sees a parallel process already flagged stays silent.
-- Wiring: merge `hooks/size_guard_settings_snippet.json` (three events) into `settings.json`. It ships
-  flagging from day one, with no log-only week (user ruling, 2026-10-20). Add `--log-only` to a
-  command to record rows without showing the flag, or set `CLAUDE_SIZE_GUARD=log`. Rows go to
-  `size_guard_hits.jsonl`. Self-test: `python -I -S -B hooks/size_guard.py --self-test`.
-- Measured 2026-10-20: a full walk takes 30-70 ms warm and up to 660 ms cold (6,388 files). The hook
-  costs about 70-95 ms per matched call when it exits at the pre-filter, about 120-190 ms when it
-  checks. Folders over 1 GB: Helbreath 2.6 GB (all `.backups`), entityframeworkcpp 2.0 GB (all
-  `worktrees`), hb-npc-wow-maker 4.2 GB (all `scratch`).
+```bash
+python install.py --only hooks --wire-hooks --apply
+```
 
-**M1, the Agent model reminder (`hooks/model_guard.py`, LOG-ONLY).** Rule (user, 2026-10-21): pick the
-cheapest model that does the job well (Haiku for clear, fully specified actions including edits and
-bulk edits, Sonnet the default, Opus for design, security-sensitive code, hard debugging and
-attack-testing; a reviewer is never a lower tier than the author on security-sensitive code), and
-state the model and why in the brief. Partly hookable: whether the tier FITS the task is a judgment no
-hook can make, but whether the dispatcher picked one at all is visible. A PreToolUse hook on the
-`Agent` tool receives `tool_input.prompt`, `description`, `subagent_type` and `model` (Claude Code hooks
-reference). M1 fires when nothing picks a tier: no `model` on the call, no agent definition (project
-`.claude/agents`, a parent of the cwd, or `~/.claude/agents`) with a `model:` other than `inherit`, and
-no `CLAUDE_CODE_SUBAGENT_MODEL`. The subagent then runs on the main session's model (the documented
-order: call `model`, definition frontmatter, that variable, main model), and a "Model: Haiku" line in
-the brief does not change that. It stays silent for an unknown or plugin agent type it cannot verify, and for `claude-code-guide` (Haiku)
-and `statusline-setup` (Sonnet), which carry their own models. A project or user definition that reuses
-a built-in name (say `Explore` with `model: haiku`) overrides the built-in and is honoured; a file with
-no `---` header is not treated as a definition.
-- Advisory only: no `permissionDecision`, no deny. Default is log-only (rows to
-  `model_guard_hits.jsonl`, nothing printed); add `--advise` to the command to print the reminder as
-  `additionalContext`. `CLAUDE_MODEL_GUARD=log` forces log-only.
-- Not built, and why: check (ii), "haiku on a prompt that says hooks/delete/security" or "opus on a
-  lookup". Replayed over 1,247 Agent calls (2026-09-28 to 2026-10-21): 4 of 18 Haiku calls matched and
-  all 4 were false positives (a constant named `attack_impact_fraction`, "delete the six colour
-  constants", an NPC folder called `guard`, "hooks" in a version note); the Opus sample was legitimate
-  reviews and a self-justified inventory. The tier is a judgment, so the reminder text carries the
-  tiers instead.
-- Measured replay of M1 over those calls: 48 fires (3.8%), 5 of 5 hand-checked hits real (general-purpose, Explore and
-  Plan calls with no model set, which inherit the main session's). Measured 2026-10-21; the fire rate
-  of the live hook depends on how the dispatcher behaves once the rule is in its context.
-- Wiring: `hooks/model_guard_settings_snippet.json` (one PreToolUse entry, matcher `Agent`). Self-test:
-  `python -I -S -B hooks/model_guard.py --self-test`.
+Use `python3` instead of `python` if that is what your system calls it. Hooks take effect in Claude
+Code sessions started after wiring.
+
+**Check the hooks** with their self-tests (write the home folder out in full: PowerShell does not
+expand `~` for Python):
+
+```bash
+python -I -S -B "<your home>/.claude/hooks/write_guard.py" --self-test
+```
+
+The same works for `size_guard.py` and `model_guard.py`. `python install.py --self-test` tests the
+installer itself.
+
+**Turn on enforcement** once the write guard has run log-only for a while and its hit log
+(`~/.claude/hooks/write_guard_hits.jsonl`, summarized by `hooks/hits_summary.py`) shows only real
+problems: add `--enforce=W2,W3,W5` (or a subset) to the write guard's command in
+`~/.claude/settings.json`, keeping `--log-only` on the line.
 
 **Strict git (optional):** `python install.py --strict-git --apply` appends
 `global/CLAUDE.git-strict.md` ("never commit on the default branch") to the installed `CLAUDE.md`.
 Pass the flag on every later install too, or the dry run reports `CLAUDE.md` as changed.
 
-## Adapt it to your machine first
+## Set it up with Claude
 
-This repo is one person's live setup, and some lines name that machine:
-- `global/CLAUDE.md`: the Python interpreter path, the `C:\Users\<name>\.claude` path, and the console
-  code page (cp1252, hence the ASCII rule).
-- `hooks/settings_snippet.json` and the usage line in `hooks/write_guard.py`'s docstring: the
-  absolute path to `write_guard.py`. `hooks/size_guard_settings_snippet.json`: the path to
-  `size_guard.py`. `hooks/model_guard_settings_snippet.json`: the path to `model_guard.py`.
-- `skills/adopt-project-standards/SKILL.md` Step 1: the absolute path to `transcript_metrics.py`.
-- The hook self-test fixtures in `hooks/rules/` (`w2_literal_delete_paths.py`, `w3_outside_root.py`,
-  `w5_temp_dir.py`) use `C:\Users\ShadowEvil\...` sample paths. Only the self-test reads them, so
-  they can stay, but update them if you want the samples to match your machine.
-- `skills/project-setup/SKILL.md` and `packs/cpp-house-style.md`: the "canonical sources" table
-  points at the author's own projects (a ticket system, a backup script, a metrics script, C++ hooks).
-  If those paths don't exist on your machine, the skill says so and skips that component; it never
-  invents a replacement.
+Paste this into a new Claude Code session, opened in the folder where you keep your code:
 
-Search the repo for `ShadowEvil` and replace those paths with yours before installing.
+```text
+Set up the claude-global-standards toolkit on my machine.
+
+1. Clone it with git, here: `git clone https://github.com/shadowevil/claude-global-standards.git`,
+   then work inside the new claude-global-standards folder. If the folder already exists, run
+   `git status` there and tell me what you find instead of cloning again.
+2. Read README.md, install.py, global/CLAUDE.md and hooks/RULES.md in full, then tell me in plain
+   words what will be installed and what it will change.
+3. Run `python install.py` (or `python3` if `python` is not found). It is a dry run. Show me every file
+   it would add or change. If I already have ~/.claude/CLAUDE.md, show me what is in mine that the new
+   one lacks, and propose a merge. Make the merge in the clone's global/CLAUDE.md (keep its
+   {{...}} placeholders as they are), never in ~/.claude/CLAUDE.md, and re-run the dry run.
+4. After I approve, run `python install.py --apply` and confirm the installed ~/.claude/CLAUDE.md
+   matches what I approved.
+5. Hooks: explain what the write guard (W2, W3, W5), S1 and M1 each do, that all of them start
+   without blocking anything, and how enforcement is turned on later. If I want them, run
+   `python install.py --only hooks --hooks --apply`, then `python install.py --only hooks --wire-hooks`
+   and show me the settings.json entries it would add. Run that last command again with `--apply`
+   only after I approve those entries.
+6. Verify: list the installed skills, and if hooks were installed, run each hook's self-test with my
+   home folder written out as an absolute path, e.g.
+   `python -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test`. Report each result as
+   passed or failed with its numbers.
+7. Tell me how to use the two main skills: "set up this project's workflow" in a new project and
+   "adopt the standards" in an existing one.
+
+Do not write outside the cloned folder and ~/.claude, do not use heredocs to write files, and do not
+delete anything without asking me first.
+```
 
 ## How changes flow
 
@@ -154,44 +193,13 @@ Edit in this repo, never in `~/.claude` directly:
 3. **Commit and push.**
 4. **Install:** `python install.py`, then `python install.py --apply` (add `--hooks` for hook code).
 
-## Set it up with an AI
+## Layout
 
-Paste this into a Claude Code session opened in your clone of this repo:
-
-```text
-Set up the global Claude Code standards from this repository on my machine.
-
-1. Read README.md, CLAUDE.md, install.py and global/CLAUDE.md in full.
-2. Search the repo for machine-specific values (user name "ShadowEvil", absolute paths, the Python
-   path, the console code page). List each one with my machine's equivalent, and ask me before
-   changing anything. Make the changes in this repo, not in ~/.claude.
-3. Run `python install.py` (dry run) and show me what it would add or change, including anything it
-   would replace in my existing ~/.claude/CLAUDE.md. If I already have a global CLAUDE.md, propose a
-   merge rather than overwriting my rules.
-4. After I approve, run `python install.py --apply`.
-5. Hooks: explain what each global rule (W2, W3, W5) blocks, and that S1 only flags a project
-   `.claude` folder over 1 GB and never blocks. Recommend starting W2, W3 and W5 log-only; S1's
-   snippet flags from day one. Install the hook code with `python install.py --hooks --apply` and
-   merge hooks/settings_snippet.json and hooks/size_guard_settings_snippet.json into
-   ~/.claude/settings.json only after I approve both steps.
-6. Verify: confirm ~/.claude/CLAUDE.md matches the repo copy, list the installed skills, and if hooks
-   were installed, run `python -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test` (and the
-   same for `size_guard.py`) with
-   <home> spelled out as an absolute path (PowerShell does not expand `~` for python).
-7. Tell me how to use the two main skills: "set up this project's workflow" (project-setup) in a new
-   project, and "adopt the standards" (adopt-project-standards) in an existing one.
-
-Do not write outside this repository and ~/.claude, do not use heredocs to write files, and do not
-delete anything without asking me first.
-```
-
-## Using it day to day
-
-- **New project:** open a Claude Code session in the project folder and say "set up this project's
-  workflow". It detects the project, interviews you with clickable questions, shows a plan, and
-  generates the files.
-- **Existing project:** say "adopt the standards". It measures the project's past sessions, shows a
-  table of what duplicates, narrows, conflicts with or is missing from the standards, and migrates in
-  waves you approve. A re-measure afterwards shows whether it helped.
-- **New rule:** state it ("from now on, never ..."). `rule-hook-agent` records it and checks whether a
-  hook can enforce it.
+| Path | Installs to |
+|---|---|
+| `global/CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| `global/CLAUDE.git-strict.md` | appended to it with `--strict-git` |
+| `global/docs/` | `~/.claude/docs/` |
+| `skills/<name>/` | `~/.claude/skills/<name>/` |
+| `hooks/` | `~/.claude/hooks/` with `--hooks`; `*settings_snippet.json` are what `--wire-hooks` adds |
+| `install.py` | not installed |

@@ -34,7 +34,7 @@ per-project CLAUDE.md and project memory).
 
 ## Safety (binding in every project)
 
-- **Write access is the session's own project directory and `C:\Users\ShadowEvil\.claude`, with their
+- **Write access is the session's own project directory and `{{CLAUDE_HOME}}`, with their
   subdirectories - nothing else; everything outside them is read-only** (user ruling, 2026-10-20). No
   sibling worktrees, parent folders or other repos: work on another folder from a session opened there.
   Give every write target as an absolute path; never `../` chains. Enforced by the global write guard (W3).
@@ -94,7 +94,7 @@ per-project CLAUDE.md and project memory).
   all tool output pulled into context, mostly from a few single-file docs.)
 - The index points and never restates; binding rules stay stated in CLAUDE.md. Do not split a cohesive
   doc or one whose parts would be a few hundred bytes; give it a Contents block instead.
-- The full standard is `C:\Users\ShadowEvil\.claude\docs\documentation_standards.md` - read it before
+- The full standard is `{{CLAUDE_HOME}}\docs\documentation_standards.md` - read it before
   adding or restructuring a doc. Projects keep only their own additions locally.
 
   ```markdown

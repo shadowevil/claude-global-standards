@@ -29,7 +29,7 @@ hook otherwise runs `--log-only`. (settings_snippet.json is the distribution tem
 `--log-only`; each machine's live settings.json sets its own `--enforce=` list.) Installed command
 line once approved:
 
-    python -I -S "C:/Users/ShadowEvil/.claude/hooks/write_guard.py" --log-only --enforce=W2
+    {{PYTHON}} -I -S "{{CLAUDE_HOME_FWD}}/hooks/write_guard.py" --log-only --enforce=W2
 
   * `--log-only --enforce=W2`: every rule still logs; only W2 hits can deny. W3, W4 and W5 stay
     log-only. `--enforce=W2,W3` would add W3; the flag is repeatable, ids are
