@@ -2,7 +2,7 @@
 $variable/substitution, a %VAR%, a leading ~ home-dir reference, or a delete fed by a pipe or with
 no path at all. A wildcard is fine only in the final file-name segment of an otherwise literal
 path, and never together with a recursive flag or on rmdir/rd (either could sweep a whole
-directory). Ported from the Helbreath project hook's audited W2 section (hb_hooks.py) - same
+directory). Ported from the origin project hook's audited W2 section - same
 checks, same fixes (a LEADING ~ only, never a substring match against an 8.3 short name like
 SHADOW~1; brace/heredoc/quote-aware segmentation; the PowerShell comma-array-argument hotfix) -
 generalized with no project-specific text: the deny message names no repo, no doc.
@@ -505,7 +505,7 @@ def run_self_test():
             msg.encode("ascii")
         except UnicodeEncodeError:
             failures.append("a W2 message is not ASCII")
-        if "helbreath" in msg.lower() or "environment.md" in msg.lower():
+        if "environment.md" in msg.lower():
             failures.append("a W2 message names a project-specific doc")
 
     return failures

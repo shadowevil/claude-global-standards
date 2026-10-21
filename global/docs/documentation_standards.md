@@ -1,11 +1,11 @@
 # documentation standards (read before adding or restructuring a doc)
 
 *Machine-wide standard, installed to `~/.claude/docs/` from claude-global-standards. Generalized
-2026-10-20 from the Helbreath project's standard, where it was first written (2026-09-03). A project
+2026-10-20 from the author's main project, where it was first written (2026-09-03). A project
 keeps only its own additions (examples, project-specific folders) in a local doc that points here.*
 
 Why: a monolith makes every narrow question pay for the whole file. Measured 2026-10-20 over 1,482
-Helbreath subagents: doc reads were 14% of all tool output pulled into context, mostly from a few
+subagents: doc reads were 14% of all tool output pulled into context, mostly from a few
 single-file docs.
 
 ## 1. Size only prompts a review; it never decides

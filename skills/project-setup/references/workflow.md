@@ -1,7 +1,7 @@
 # A portable multi-agent workflow for Claude Code
 
-*The Helbreath project's way of working, written with the project taken out, so another repository
-can adopt it. Written 2026-09-30 as Helbreath's `.claude/docs/portable_workflow.md`; moved into the
+*The author's way of working, written with the origin project taken out, so another repository
+can adopt it. Written 2026-09-30 as that project's `.claude/docs/portable_workflow.md`; moved into the
 `project-setup` skill on 2026-10-20, which is now its one home. Rules marked (global) below are also in
 `~/.claude/CLAUDE.md` and load in every project anyway; a generated project points at them rather than
 restating them.*
@@ -13,20 +13,20 @@ Contents: 0. adopting it - 1. principles - 2. roles and ownership - 3. contracts
 
 ## 0. Adopting it
 
-Fill in this table first. Every later section refers to these names, not to anything in Helbreath.
+Fill in this table first. Every later section refers to these names, not to anything in the origin project.
 
-| Slot | What to decide | Helbreath's answer (example) |
+| Slot | What to decide | Example answer |
 |---|---|---|
 | Areas | The ownership split of the source tree: 2-4 areas, each a set of paths | `client`, `server`, `sql` |
 | Verifier | The role that proves things work and owns no source | `test` |
 | Contracts | The seams between areas that must be agreed before code (wire format, schema, API) | client <-> server packets; server <-> sql schema |
-| Scratch root | Fixed globally (2026-10-20): `.claude/scratch/<role>/<task>/`, gitignored | Helbreath predates it: `working/.claude-working/<role>/` |
+| Scratch root | Fixed globally (2026-10-20): `.claude/scratch/<role>/<task>/`, gitignored | Older projects: `working/.claude-working/<role>/` |
 | Backup tool | A script that snapshots files before they are edited | `src/tools/scripts/backup.py` |
 | Changelogs | A technical one and a user-facing one | `dev-changelog.md`, `user-changelog.md` |
 | Ticket store | Where findings live | `.claude/tickets/*.json` plus a CLI and viewer |
 | Runtime the PM owns | Long-running services only the PM restarts | the dev game servers, the ticket viewer |
 | Verify surface | How the verifier drives the product without real input | an MCP bridge into the debug client |
-| Upstreams you own | Libraries from your other repos, for which you file requirements | Schemata (DB), hba-lib (archives) |
+| Upstreams you own | Libraries from your other repos, for which you file requirements | a schema library (DB), an archive-format library |
 
 The `project-setup` skill then generates the files from its `templates/` (CLAUDE.md, the agent briefs)
 and `team_workflow.md` from this file; `tickets.md` ships with the ticket system (its

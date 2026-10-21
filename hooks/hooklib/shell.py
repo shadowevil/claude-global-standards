@@ -1,5 +1,5 @@
 """Shell-command segmentation and tokenizing, without a real shell. Ported verbatim from the
-Helbreath project hook (hb_hooks.py: split_top_level, shell_tokens, mask_quotes) - nothing here
+origin project hook (split_top_level, shell_tokens, mask_quotes) - nothing here
 is project-specific.
 """
 import re

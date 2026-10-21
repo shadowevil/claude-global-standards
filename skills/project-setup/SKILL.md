@@ -1,13 +1,13 @@
 ---
 name: project-setup
-description: Run by the main session (never by a dispatched agent) when the user wants a project set up with their Claude workflow - "set up this project's workflow", "bootstrap the agents/tickets/docs here", "make this project like Helbreath", "set up a new project with the team workflow". An existing project with its own setup uses adopt-project-standards instead. Interviews the user with clickable questions, then generates CLAUDE.md, agent briefs, the team workflow, tickets, changelogs, backups, a metrics baseline and optional language packs inside the project, never restating the machine-wide rules in ~/.claude/CLAUDE.md.
+description: Run by the main session (never by a dispatched agent) when the user wants a project set up with their Claude workflow - "set up this project's workflow", "bootstrap the agents/tickets/docs here", "make this project like my other one", "set up a new project with the team workflow". An existing project with its own setup uses adopt-project-standards instead. Interviews the user with clickable questions, then generates CLAUDE.md, agent briefs, the team workflow, tickets, changelogs, backups, a metrics baseline and optional language packs inside the project, never restating the machine-wide rules in ~/.claude/CLAUDE.md.
 ---
 
 # project-setup
 
-The user, 2026-10-20: "an interactive skill which helps me setup an efficient environment like what
-Helbreath SDL has". The workflow it installs is `references/workflow.md` (its one home; Helbreath's
-`portable_workflow.md` was its first draft). Templates are in `templates/`, language packs in `packs/`.
+The user, 2026-10-20: an interactive skill that sets up an efficient environment like the one their
+main project has. The workflow it installs is `references/workflow.md` (its one home). Templates are in
+`templates/`, language packs in `packs/`, and the tools it copies into a project in `bundled/`.
 
 ## Binding
 
@@ -28,11 +28,15 @@ Helbreath SDL has". The workflow it installs is `references/workflow.md` (its on
 
 | Component | Canonical source |
 |---|---|
-| Ticket system | `C:\Users\ShadowEvil\source\master-ticket-site\ticket-system` - follow its `docs\ADOPTING.md` end to end (owner: the Ticket Master session) |
-| Backup tool | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\src\tools\scripts\backup.py`, as of Helbreath commit `9ae37130` (hardened 2026-10-20 after a Ticket Master fault report and an audit). Owner: Helbreath SDL3. |
-| Changelog format | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\docs\changelog_format.md` |
-| Metrics baseline | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\metrics\subagent_baseline.py` |
+| Ticket system | Optional, machine-local: the `ticket_system` folder named in `{{CLAUDE_HOME}}\project-setup.sources.json` - follow its `docs\ADOPTING.md` end to end. No file or no entry: the component is not offered. |
+| Backup tool | `bundled/backup.py` (the hardened, audited version; see `bundled/README.md`) |
+| Changelog format | `bundled/changelog_format.md` |
+| Metrics baseline | `bundled/subagent_baseline.py` |
 | C++ pack | `packs/cpp-house-style.md` |
+
+`project-setup.sources.json` is the user's own file, never shipped by the installer. It maps a
+component to a folder on this machine (`{"ticket_system": "...", "cpp_standards": "...",
+"cpp_hooks": "..."}`); read it if present, and treat a folder that does not exist as missing.
 
 ## Mode
 
@@ -55,7 +59,8 @@ Gather, then report in at most 10 lines before asking anything:
 
 **Round A - shape** (4 questions):
 1. Team: PM + specialists + verifier (recommended for multi-area code) / PM + specialists / solo.
-2. Tickets: full system with viewer (recommended) / none.
+2. Tickets: full system with viewer (recommended) / none. Only when the ticket system source exists;
+   otherwise skip the question and report "no ticket system source on this machine".
 3. Changelogs: technical + user-facing (recommended) / technical only / none.
 4. Backups before modifying: recommend yes when the repo holds untracked or binary assets, else no.
 
@@ -113,15 +118,12 @@ entry "Workflow adopted <date> via project-setup: <choices>".
   path, scope, when to read) plus `topic/<entry>.md`, unless the standard's sect. 6 applies (then a
   Contents block).
 - **Tickets:** follow ADOPTING.md exactly, including its reviewed skill install, its verify section and
-  its report to Ticket Master. Do not improvise around it.
-- **Changelogs:** create both files with an empty living entry; adapt `changelog_format.md` (strip
-  Helbreath names and areas).
-- **Backups:** copy only the hardened version (component table). First confirm Helbreath's working
-  file still matches it: `git -C "C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath" diff --quiet
-  9ae37130 -- src/tools/scripts/backup.py` must exit 0. If it does not, stop and ask the Helbreath PM
-  whether the newer version is reviewed; never copy an unreviewed one (the older `backup.ps1` and
-  earlier `backup.py` versions could delete outside their backup folder, or delete an existing file
-  passed as `--new-files`). The script finds the repo root as
+  its report step. Do not improvise around it.
+- **Changelogs:** create both files with an empty living entry; copy `bundled/changelog_format.md` to
+  `.claude/docs/changelog_format.md` and fill its area sections with this project's areas.
+- **Backups:** copy `bundled/backup.py` byte for byte; never a version from anywhere else (older
+  backup scripts could delete outside their backup folder, or delete an existing file passed as
+  `--new-files`). The script finds the repo root as
   `Path(__file__).resolve().parents[3]`, which is right only three folders deep: copy it to
   `<repo>\src\tools\scripts\backup.py` (or another path exactly three deep), or change that index to
   this project's depth. Then prove it before relying on it, from the project root:
@@ -131,17 +133,19 @@ entry "Workflow adopted <date> via project-setup: <choices>".
   3. `purge --set ..` is refused (exit 1, "not a backup set name") and deletes nothing.
   4. `purge --set <the set from step 2>` removes only that set.
   Gitignore `.claude/.backups/`.
-- **Metrics:** copy `subagent_baseline.py` to `.claude/metrics/` and set `PROJECT_SLUG`: the absolute
-  project path with every character that is not a letter or digit replaced by `-`
-  (`C:\Users\x\source\foo` -> `C--Users-x-source-foo`). If `~/.claude/projects/<slug>` exists, say so;
-  if not, note that it appears after the first session there.
+- **Metrics:** copy `bundled/subagent_baseline.py` to `.claude/metrics/`. It derives the project's
+  transcript folder name (the absolute project path with every character that is not a letter or
+  digit replaced by `-`, `C:\Users\x\source\foo` -> `C--Users-x-source-foo`) from where it sits; set
+  `PROJECT_SLUG` only if Claude Code's folder name differs. If `~/.claude/projects/<slug>` exists, say
+  so; if not, note that it appears after the first session there. Add the project's own hook ids to
+  its `RULE_ID` pattern when it has any.
 - **`.gitignore`:** `.claude/scratch/`, the backup sets folder, hook and viewer logs.
 - **Language packs:** follow `packs/<pack>.md`.
 
 ## Step 5 - Verify
 
 - Every path CLAUDE.md and the briefs point at exists.
-- Tickets: ADOPTING.md's verify section passes.
+- Tickets (when chosen): ADOPTING.md's verify section passes.
 - Backups: the four-step proof above, refusal included.
 - `git status --short` shows only the files from the plan.
 - Any staged hook passes its self-test and has a review verdict before install.
