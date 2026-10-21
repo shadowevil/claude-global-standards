@@ -22,8 +22,9 @@ rules (safety, git, dispatching, working habits) are in `~/.claude/CLAUDE.md` an
 
 ## the team (binding)  <IF team>
 
-**You are the project manager.** <N> specialists implement<, a verifier verifies>; the main session scopes,
-dispatches, builds and owns everything the user sees. Briefs: `.claude/agents/{<roles>}.md`.
+**You are the project manager.** <N> specialists implement<, a test agent verifies>, and the read-only
+`review` agent reviews every code change before it is committed; the main session scopes, dispatches,
+builds and owns everything the user sees. Briefs: `.claude/agents/{<roles>,review<,test>}.md`.
 
 - `<role>` owns `<paths>`. ... (one line per role)
 - Every agent may READ the whole repo; an agent WRITES only inside its own area.
@@ -33,6 +34,13 @@ dispatches, builds and owns everything the user sees. Briefs: `.claude/agents/{<
   commits.
 
 Dispatch mechanics and the change-set lifecycle: `.claude/docs/team_workflow.md`.
+
+## review (binding)  <IF solo>
+
+Every code change gets the read-only `review` agent (`.claude/agents/review.md`) before it is
+committed. It reports and changes nothing; its findings are fixed here and the change re-reviewed.
+<IF test agent> The `test` agent (`.claude/agents/test.md`) verifies after the build, never alongside
+the change's author.
 
 ## code (binding)
 

@@ -132,13 +132,16 @@ not generated.
    - their own technical changelog bullets.
 6. **Integrate.** The PM checks `git status` for strays, builds, restarts the shared runtime once after
    all builds have landed, and verifies where the change is visible.
-7. **Verify.** The verifier is dispatched AFTER the change is built and deployed, never alongside the
-   author.
-8. **Record.** The PM merges the bullets into the technical changelog, then generalizes them into the
+7. **Review.** The read-only `review` agent reviews the diff against the goal (not the author's
+   reasoning) before anything is committed; findings go back to the author, and a changed set is
+   reviewed again. Required in every project.
+8. **Verify.** The verifier (the `test` agent, when the project has one; otherwise the user) runs
+   AFTER the change is built and deployed, never alongside the author.
+9. **Record.** The PM merges the bullets into the technical changelog, then generalizes them into the
    user changelog.
-9. **Commit locally.** Only a coherent, verified set, never mid-agent, and never on the main branch
+10. **Commit locally.** Only a coherent, verified set, never mid-agent, and never on the main branch
    (global). Push or open a PR only when the user asks (global).
-10. **Close.** Tickets go to `done` with the commit and a line on what verified them. The backup set is
+11. **Close.** Tickets go to `done` with the commit and a line on what verified them. The backup set is
     purged once the user confirms.
 
 ## 6. Verification
