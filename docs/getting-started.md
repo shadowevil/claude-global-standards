@@ -9,8 +9,8 @@ Claude Code is an AI assistant that runs in your terminal or desktop app and wor
 the folder you open it in. Out of the box it follows none of your rules: each session decides for
 itself how careful to be, where to put scratch files, and when to commit.
 
-This toolkit gives every session on your machine the same rules, four skills and three optional
-hooks.
+This toolkit gives every session on your machine the same rules, up to four skills (two with the
+smaller `starter` profile) and three optional hooks.
 
 - **Rules every session is told to follow.** They are in one file, `~/.claude/CLAUDE.md`, which
   Claude Code reads at the start of every session. They are instructions, not locks (the hooks are
@@ -57,10 +57,11 @@ You need three things:
 The toolkit is developed and used daily on Windows 11. Its installer is tested against macOS and
 Linux folder layouts, but it has not been run on a real Mac or Linux machine yet.
 
-Some of `~/.claude/CLAUDE.md` describes the author's Windows machine (which Python command to use,
-the console encoding). The rules hold anywhere; those descriptions may not match yours. Part of
-`project-setup` copies tools from the author's other projects; on your machine it says those are
-missing and skips them.
+The installer writes the Environment part of `~/.claude/CLAUDE.md` for your machine (your Python
+command and your console's encoding). The rules quote the dates the author made them, shown as
+"author's rule" so you do not mistake them for your own decisions. Two optional parts of
+`project-setup` (a ticket system and the C++ pack's hooks) need sources of your own; without them it
+says so and skips them.
 
 ## Install
 
@@ -81,22 +82,25 @@ cd ~/.claude/scratch/claude-global-standards
 ```
 
 ```bash
-python install.py
+python install.py --profile starter
 ```
 
-That last command is a **dry run**: it only lists what it would add or change. Save that list; it
-is also what you would remove to uninstall. If it looks right, install:
+That last command is a **dry run**: it only lists what it would add or change. Save that list; the
+files marked ADD are what you would remove to uninstall, along with
+`~/.claude/.claude-global-standards.json` (the installer's record). `starter` is the smaller setup: the rules plus the two
+setup skills. Leave out `--profile starter` to get all four skills. If it looks right, install:
 
 ```bash
-python install.py --apply
+python install.py --profile starter --apply
 ```
 
-If you already had a `~/.claude/CLAUDE.md`, the installer replaces it (the old file is saved under
-`~/.claude/staging/install-backups/`). To keep your own rules, copy them into the clone's
-`global/CLAUDE.md` first, then run the dry run again.
+If you already had a `~/.claude/CLAUDE.md`, the installer keeps your text and adds the toolkit's
+rules after it, between two marker comments (the dry run calls this MERGE). A file you edit after
+installing is never overwritten; the next install puts the new version beside it as `<name>.new`.
 
 **Then start a new Claude Code session**: rules and skills load when a session starts. To check it
-worked, ask the new session "which skills do you have?" and look for the four above.
+worked, ask the new session "which skills do you have?" and look for `project-setup` and
+`adopt-project-standards` (and the other two with the full profile).
 
 Hooks are optional and can wait until you have used the toolkit for a few days. The README's
 [Install](../README.md#install) section has the commands.
@@ -123,7 +127,8 @@ Hooks are optional and can wait until you have used the toolkit for a few days. 
 - **You want to undo the install.** Every file the installer replaced is saved under
   `~/.claude/staging/install-backups/<date-time>/`; copy back what you want. To remove the toolkit,
   delete the files from the list you saved (the README's Layout table shows where each part goes).
-  If you wired hooks, restore `settings.json` from
+  If your own `CLAUDE.md` was merged, delete only the part between the two
+  `claude-global-standards` marker lines, not the file. If you wired hooks, restore `settings.json` from
   `~/.claude/staging/install-backups/settings-<date-time>/`.
 
 ## Updating
@@ -135,8 +140,7 @@ New versions arrive through git, in the clone at `~/.claude/scratch/claude-globa
 git -C ~/.claude/scratch/claude-global-standards status
 ```
 
-If it shows changes of your own (a merged `CLAUDE.md`, say), commit them on a branch of your own
-first. Then update with `git -C ~/.claude/scratch/claude-global-standards pull`, and from inside
+If it shows changes of your own, commit them on a branch of your own first. Then update with `git -C ~/.claude/scratch/claude-global-standards pull`, and from inside
 that folder run `python install.py` for a dry run and `--apply` once you have looked at the
 changes. If you installed hooks, also run `python install.py --only hooks --hooks --apply`, and
 `python install.py --only hooks --wire-hooks` to see whether a new hook needs wiring (add `--apply`

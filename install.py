@@ -7,6 +7,9 @@
     python install.py --strict-git     append global/CLAUDE.git-strict.md to the installed CLAUDE.md
     python install.py --wire-hooks     show the settings.json entries the hooks need (add --apply to write)
     python install.py --python CMD     the Python command the hooks run with (default: detected)
+    python install.py --profile P      starter | full (default: the last install's, else full)
+    python install.py --attribution A  author | user: how dated rulings read (default: author for a
+                                       new install, user where an earlier install wrote CLAUDE.md)
     python install.py --self-test      run the installer's own tests (writes nothing)
 
 Mapping:
@@ -22,6 +25,16 @@ Placeholders (2026-10-21, so the repo installs for anyone): text files may carry
     {{PYTHON}}           the Python command (`python` / `python3`, or a quoted full path)
 They are filled at install time; in .json files the values are JSON-escaped. Everything else in a
 file is copied byte for byte, so on the owner's machine the installed files are unchanged.
+
+Profiles, machine facts, merge-not-overwrite (Part B, 2026-10-21):
+- global/CLAUDE.md marks full-only sections with "<!-- profile: full -->" and the Environment bullets
+  with "<!-- environment: begin/end -->". The markers are never installed; the Environment text is
+  generated for this machine (the repo text IS the author's machine, so it comes back unchanged there).
+- ~/.claude/.claude-global-standards.json records the profile, the wording and each installed file's
+  sha256. A file that no longer matches its record (or, before the record existed, any committed
+  version of it) was edited by you: it is KEPT and the new version written beside it as <name>.new.
+- A CLAUDE.md that is yours gets the rules in a marked block after your text (MERGE); later installs
+  rewrite only that block (BLOCK).
 
 Rules:
 - Line endings are kept exactly; a file that differs only in line endings is reported as such.
@@ -132,31 +145,151 @@ def fill_bytes(data, name, values):
     return fill_text(text, values, json_file=name.lower().endswith(".json")).encode("utf-8")
 
 
+# ------------------------------------------------------------------ profiles, machine facts, wording
+
+PROFILE_MARK = "<!-- profile: full -->"
+ENV_BEGIN, ENV_END = "<!-- environment: begin -->", "<!-- environment: end -->"
+BLOCK_BEGIN = "<!-- claude-global-standards: begin (installer-managed; edit the clone, not this block) -->"
+BLOCK_END = "<!-- claude-global-standards: end -->"
+FULL_ONLY_SKILLS = {"rule-hook-agent", "pattern-skill-agent"}
+OWNER_PY_PATH = "%LOCALAPPDATA%\\Programs\\Python\\Python313\\python.exe"
+# dated attributions of the author's own rulings: "(user rule, 2026-...", "The user, 2026-...", ...
+ATTRIB_RE = re.compile(r"(?<![A-Za-z'])([Uu])ser( rule| ruling| standard| decision)?(?=, \d{4}-\d{2}-\d{2})")
+
+
+def machine_facts(python_cmd):
+    """What the Environment section says about this machine: os, Python command/path/version,
+    whether `python3` is the Windows Store stub, and the encoding piped output gets."""
+    import locale
+    facts = {"os": os.name, "cmd": python_cmd, "path": python_cmd.strip('"'), "ver": "%d.%d" % sys.version_info[:2],
+             "stub3": False, "enc": (locale.getpreferredencoding(False) or "utf-8").lower()}
+    try:
+        p = subprocess.run([python_cmd.strip('"'), "-c", "import sys; print(sys.executable); print('%d.%d' % sys.version_info[:2])"],
+                           capture_output=True, text=True, timeout=20)
+        lines = [l.strip() for l in p.stdout.splitlines() if l.strip()]  # a path may contain spaces
+        if p.returncode == 0 and len(lines) >= 2:
+            facts["path"], facts["ver"] = lines[0], lines[1]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if os.name == "nt":
+        found = shutil.which("python3") or ""
+        facts["stub3"] = "windowsapps" in found.lower()
+        local = os.environ.get("LOCALAPPDATA", "")
+        if local and facts["path"].lower().startswith(local.lower() + "\\"):
+            facts["path"] = "%LOCALAPPDATA%" + facts["path"][len(local):]
+    else:
+        home = str(Path.home())
+        if facts["path"].startswith(home + "/"):
+            facts["path"] = "~" + facts["path"][len(home):]
+    if facts["enc"].replace("-", "") in ("utf8", "cp65001"):
+        facts["enc"] = "utf-8"
+    return facts
+
+
+def environment_block(repo_block, facts, nl):
+    """The Environment bullets for this machine. The repo's text is the author's machine (bare
+    `python`, `python3` the Store stub, a cp1252 console); on such a machine it comes back unchanged."""
+    py_text, sep, ascii_text = repo_block.partition(nl + nl + "- **Default to ASCII.**")
+    ascii_text = "- **Default to ASCII.**" + ascii_text
+    cmd = facts["cmd"]
+    if facts["os"] == "nt" and cmd == "python" and facts["stub3"]:
+        py = py_text.replace(OWNER_PY_PATH, facts["path"]).replace("currently 3.13.x", "currently %s.x" % facts["ver"])
+    elif cmd.startswith('"') or "/" in cmd or "\\" in cmd:
+        py = nl.join(["- **Python is invoked by its full path on this machine:** `%s` (currently %s.x). Use"
+                      % (facts["path"], facts["ver"]), "  that path for any Python script or one-off."])
+    else:
+        py = nl.join(["- **Python is invoked as `%s` on this machine** (`%s`, currently %s.x). Always call"
+                      % (cmd, facts["path"], facts["ver"]), "  `%s ...` for any Python script or one-off." % cmd])
+    first, sep2, rest = ascii_text.partition(nl + nl)
+    if facts["enc"] == "utf-8":
+        first = nl.join([
+            "- **Default to ASCII.** The console here is UTF-8, but scripts also run in consoles and logs that",
+            "  are not, so keep anything written to stdout or stderr ASCII: no arrows, em dashes, ellipses, curly",
+            "  quotes or box drawing. On a cp1252 console a single such character raises `UnicodeEncodeError`",
+            "  and takes the whole script down. Use `->`, `-`, `...`, `'` instead."])
+    else:
+        first = first.replace("The console here is cp1252,", "The console here is %s," % facts["enc"])
+    return py + nl + nl + first + sep2 + rest
+
+
+def shape_claude_md(text, profile, facts):
+    """Apply the profile and the machine facts to global/CLAUDE.md's text, and strip the markers."""
+    nl = "\r\n" if "\r\n" in text else "\n"
+    if ENV_BEGIN in text and ENV_END in text:
+        head, _, tail = text.partition(ENV_BEGIN + nl)
+        block, _, tail = tail.partition(nl + ENV_END)
+        text = head + (environment_block(block, facts, nl) if facts else block) + tail
+    out, skipping, own_heading = [], False, False
+    for line in text.split(nl):
+        if line == PROFILE_MARK:  # the marked section runs to the next "## " heading
+            skipping, own_heading = profile != "full", True
+            continue
+        if line.startswith("## "):
+            if own_heading:
+                own_heading = False
+            elif skipping:
+                skipping = False
+        if not skipping:
+            out.append(line)
+    return nl.join(out)
+
+
+def reword_attribution(text):
+    """'(user rule, 2026-...' -> '(author's rule, 2026-...', and the like, for other people's installs."""
+    def sub(m):
+        cap, kind = m.group(1), m.group(2) or ""
+        word = ("Author" if cap == "U" else "author") + ("'s" if kind else "")
+        return word + kind
+    return ATTRIB_RE.sub(sub, text).replace('; the user: "Haiku', '; the author: "Haiku')
+
+
 # ------------------------------------------------------------------ files
+
+def append_strict(data, strict):
+    """CLAUDE.md bytes with the strict-git block appended, in the file's own line endings."""
+    extra = strict.replace(b"\r\n", b"\n")
+    if b"\r\n" in data:
+        extra = extra.replace(b"\n", b"\r\n")
+    nl = b"\r\n" if b"\r\n" in data else b"\n"
+    if not data.endswith(nl):
+        data += nl
+    return data + extra
+
 
 def claude_md(strict_git):
     """The bytes the installed CLAUDE.md should hold: the base file, plus the strict-git block."""
     data = (REPO / "global" / "CLAUDE.md").read_bytes()
     if strict_git:
-        extra = (REPO / "global" / "CLAUDE.git-strict.md").read_bytes().replace(b"\r\n", b"\n")
-        if b"\r\n" in data:
-            extra = extra.replace(b"\n", b"\r\n")
-        nl = b"\r\n" if b"\r\n" in data else b"\n"
-        if not data.endswith(nl):
-            data += nl
-        data += extra
+        data = append_strict(data, (REPO / "global" / "CLAUDE.git-strict.md").read_bytes())
     return data
 
 
-def plan(parts, values, strict_git=False, target=TARGET):
-    """Yield (part, filled bytes, destination) for every file this repo installs."""
+def shape(data, name, values, opts):
+    """One source file's installed bytes: profile and machine facts (CLAUDE.md), wording, placeholders."""
+    opts = opts or {}
+    if name.lower().endswith(".md") and (name == "CLAUDE.md" or opts.get("attribution") == "author"):
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return fill_bytes(data, name, values)
+        if name == "CLAUDE.md":
+            text = shape_claude_md(text, opts.get("profile", "full"), opts.get("facts"))
+        if opts.get("attribution") == "author":
+            text = reword_attribution(text)
+        data = text.encode("utf-8")
+    return fill_bytes(data, name, values)
+
+
+def plan(parts, values, strict_git=False, target=TARGET, opts=None):
+    """Yield (part, installed bytes, destination) for every file this repo installs."""
+    profile = (opts or {}).get("profile", "full")
     if "global" in parts:
-        yield "global", fill_bytes(claude_md(strict_git), "CLAUDE.md", values), target / "CLAUDE.md"
+        yield "global", shape(claude_md(strict_git), "CLAUDE.md", values, opts), target / "CLAUDE.md"
         docs = REPO / "global" / "docs"
         if docs.is_dir():
             for src in sorted(docs.rglob("*")):
                 if wanted(src):
-                    yield "global", fill_bytes(src.read_bytes(), src.name, values), \
+                    yield "global", shape(src.read_bytes(), src.name, values, opts), \
                         target / "docs" / src.relative_to(docs)
     for part, sub in (("skills", "skills"), ("hooks", "hooks")):
         if part not in parts:
@@ -165,9 +298,11 @@ def plan(parts, values, strict_git=False, target=TARGET):
         if not root.is_dir():
             continue
         for src in sorted(root.rglob("*")):
+            rel = src.relative_to(root)
+            if part == "skills" and profile != "full" and rel.parts[0] in FULL_ONLY_SKILLS:
+                continue
             if wanted(src):
-                yield part, fill_bytes(src.read_bytes(), src.name, values), \
-                    target / sub / src.relative_to(root)
+                yield part, shape(src.read_bytes(), src.name, values, opts), target / sub / rel
 
 
 def classify(a, dst):
@@ -179,6 +314,158 @@ def classify(a, dst):
     if a.replace(b"\r\n", b"\n") == b.replace(b"\r\n", b"\n"):
         return "CHANGE (line endings only)"
     return "CHANGE"
+
+
+# ------------------------------------------------------------------ manifest: never overwrite your edits
+
+MANIFEST_NAME = ".claude-global-standards.json"
+
+
+def sha(data):
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+PROFILES, ATTRIBUTIONS = ("starter", "full"), ("author", "user")
+
+
+def load_manifest(target=TARGET):
+    """The record of the last install, or {} when it is missing or unreadable. Values the installer
+    does not know are dropped (and the file is backed up before it is next rewritten)."""
+    try:
+        m = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(m, dict):
+        return {}
+    files = m.get("files")
+    out = {"files": {k: v for k, v in files.items() if isinstance(k, str) and isinstance(v, str)}
+           if isinstance(files, dict) else {}}
+    if m.get("profile") in PROFILES:
+        out["profile"] = m["profile"]
+    if m.get("attribution") in ATTRIBUTIONS:
+        out["attribution"] = m["attribution"]
+    return out
+
+
+def source_of(rel):
+    """The repo path a destination (relative to ~/.claude, posix) is installed from."""
+    if rel == "CLAUDE.md":
+        return "global/CLAUDE.md"
+    if rel.startswith("docs/"):
+        return "global/" + rel
+    return rel  # skills/... and hooks/... sit at the same path in the repo
+
+
+def prior_hashes(rel, values, facts=None, _cache={}):
+    """sha256 of every committed version of this file as any earlier install could have written it:
+    the raw fill (installs before profiles existed) and every profile x wording x strict-git shape.
+    A file matching one was put there by this installer, so replacing it loses nothing. Without git
+    (a zip download) the set is empty and an existing file is treated as the user's."""
+    if rel in _cache:
+        return _cache[rel]
+    src, out = source_of(rel), set()
+    name = Path(src).name
+    strict = (REPO / "global" / "CLAUDE.git-strict.md").read_bytes() if rel == "CLAUDE.md" else None
+    try:
+        log = subprocess.run(["git", "-C", str(REPO), "log", "--format=%H", "--", src],
+                             capture_output=True, text=True, timeout=30)
+        for h in log.stdout.split() if log.returncode == 0 else []:
+            p = subprocess.run(["git", "-C", str(REPO), "show", "%s:%s" % (h, src)], capture_output=True, timeout=30)
+            if p.returncode != 0:
+                continue
+            variants = [p.stdout]
+            if strict is not None:
+                variants.append(append_strict(p.stdout, strict))
+            for raw in variants:
+                out.add(sha(fill_bytes(raw, name, values)))
+                for profile in PROFILES:
+                    for attribution in ATTRIBUTIONS:
+                        opts = {"profile": profile, "attribution": attribution, "facts": facts}
+                        out.add(sha(shape(raw, name, values, opts)))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    _cache[rel] = out
+    return out
+
+
+def guess_attribution(values, facts=None, target=TARGET):
+    """'user' when ~/.claude/CLAUDE.md is one this installer wrote with the original wording before the
+    manifest existed (the author's own machine); 'author' for everyone else."""
+    cur = target / "CLAUDE.md"
+    if not cur.is_file():
+        return "author"
+    data = cur.read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return "author"
+    if sha(data) in prior_hashes("CLAUDE.md", values, facts) and "(author's rule, " not in text:
+        return "user"
+    return "author"
+
+
+def guess_profile(target=TARGET):
+    """With no record: 'starter' when the installed setup looks like one (project-setup present, the
+    full-only skills absent), else 'full'."""
+    skills = target / "skills"
+    if (skills / "project-setup").is_dir() and not any((skills / n).is_dir() for n in FULL_ONLY_SKILLS):
+        return "starter"
+    return "full"
+
+
+def with_block(current, data):
+    """CLAUDE.md that keeps the user's own text and carries the toolkit's rules in one marked block.
+    Refuses (InstallError) a file that is not UTF-8 or whose markers are broken, rather than guess."""
+    try:
+        text = current.decode("utf-8")
+    except UnicodeDecodeError:
+        raise InstallError("~/.claude/CLAUDE.md is not UTF-8 text; convert it to UTF-8 first, or move it "
+                           "aside, so the installer can keep your text without damaging it (skills alone "
+                           "still install with --only skills)")
+    nl = "\r\n" if "\r\n" in text else ("\n" if "\n" in text else
+                                       ("\r\n" if b"\r\n" in data else "\n"))
+    new = data.decode("utf-8").replace("\r\n", "\n").replace("\n", nl)
+    block = BLOCK_BEGIN + nl + new.rstrip("\r\n") + nl + BLOCK_END
+    nb, ne = text.count(BLOCK_BEGIN), text.count(BLOCK_END)
+    if nb == 0 and ne == 0:
+        return (text.rstrip("\r\n") + nl + nl + block + nl).encode("utf-8")
+    if nb == 1 and ne == 1 and text.index(BLOCK_BEGIN) < text.index(BLOCK_END):
+        head, _, rest = text.partition(BLOCK_BEGIN)
+        _, _, tail = rest.partition(BLOCK_END)
+        return (head + block + tail).encode("utf-8")
+    raise InstallError("~/.claude/CLAUDE.md has broken toolkit markers (%d begin, %d end, or in the wrong "
+                       "order); fix them by hand so there is one begin line before one end line, or remove "
+                       "both (skills alone still install with --only skills)" % (nb, ne))
+
+
+def decide(rel, data, dst, manifest, values, facts=None):
+    """(state, bytes to write, path to write) for one destination. States: ADD, same, CHANGE,
+    BLOCK (CLAUDE.md: only the toolkit's marked block changes), MERGE (a CLAUDE.md the installer never
+    wrote: your text stays and the rules go into a marked block after it), KEEP (a file you edited
+    after it was installed: it is left alone and the new version goes beside it as <name>.new)."""
+    if not dst.exists():
+        return "ADD", data, dst
+    cur = dst.read_bytes()
+    if cur == data:
+        return "same", data, dst
+    if rel == "CLAUDE.md" and (BLOCK_BEGIN.encode() in cur or BLOCK_END.encode() in cur):
+        new = with_block(cur, data)
+        return ("same" if new == cur else "BLOCK"), new, dst
+    recorded = manifest.get("files", {}).get(rel)
+    if recorded:
+        ours, known = sha(cur) == recorded, True
+    else:
+        ours = sha(cur) in prior_hashes(rel, values, facts)
+        known = ours
+    if ours:
+        return classify(data, dst), data, dst
+    if rel == "CLAUDE.md" and not known:
+        return "MERGE", with_block(cur, data), dst
+    new_path = dst.with_name(dst.name + ".new")
+    if new_path.exists() and new_path.read_bytes() == data:
+        return "same", data, new_path  # already offered
+    return "KEEP", data, new_path
 
 
 def extras(parts):
@@ -286,7 +573,7 @@ def wire_hooks(values, apply):
         if script and not (TARGET / "hooks" / script).exists():
             raise InstallError("hook code missing: %s - install it first with --only hooks --hooks --apply" % script)
     if path.exists():
-        backup = TARGET / "staging" / "install-backups" / ("settings-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+        backup = TARGET / "staging" / "install-backups" / ("settings-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
         backup.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup / "settings.json")
         print("backup: %s" % (backup / "settings.json"))
@@ -415,6 +702,64 @@ def self_test():
         except InstallError:
             check(True, "")
 
+    # profiles, machine facts, wording, the CLAUDE.md block (B, 2026-10-21)
+    raw = claude_md(False).decode("utf-8")
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    owner_f = {"os": "nt", "cmd": "python", "path": OWNER_PY_PATH, "ver": "3.13", "stub3": True, "enc": "cp1252"}
+    plain = nl.join(l for l in raw.split(nl) if l not in (PROFILE_MARK, ENV_BEGIN, ENV_END))
+    check(shape_claude_md(raw, "full", owner_f) == plain, "the author's machine facts must reproduce the repo text")
+    check(shape_claude_md(raw, "full", None) == plain, "no facts: the repo text, markers stripped")
+    starter = shape_claude_md(raw, "starter", owner_f)
+    check("## Hooks and skills" not in starter and "## Session and scratch files" in starter
+          and "## Safety" in starter, "starter drops only the marked section")
+    check(nl + nl + nl not in starter, "starter leaves no double blank line where the section was")
+    linux = shape_claude_md(raw, "full", {"os": "posix", "cmd": "python3", "path": "/usr/bin/python3",
+                                          "ver": "3.12", "stub3": False, "enc": "utf-8"})
+    check("Python is invoked as `python3` on this machine** (`/usr/bin/python3`, currently 3.12.x)" in linux
+          and "Windows Store" not in linux and "The console here is UTF-8" in linux and "cp1252," not in linux
+          and "reconfigure the" in linux, "a Linux machine gets its own Environment text")
+    win = shape_claude_md(raw, "full", {"os": "nt", "cmd": "python", "path": "C:\\Python312\\python.exe",
+                                        "ver": "3.12", "stub3": False, "enc": "cp1250"})
+    check("as `python` on this machine** (`C:\\Python312\\python.exe`" in win and "Store alias" not in win
+          and "The console here is cp1250," in win, "Windows without the Store stub, another code page")
+    full_path = shape_claude_md(raw, "full", {"os": "nt", "cmd": '"C:/Program Files/Py/python.exe"',
+                                              "path": "C:\\Program Files\\Py\\python.exe", "ver": "3.11",
+                                              "stub3": True, "enc": "cp1252"})
+    check("by its full path on this machine:** `C:\\Program Files\\Py\\python.exe`" in full_path, "a full-path Python")
+    for before, after in (("(user rule, 2026-09-28: x)", "(author's rule, 2026-09-28: x)"),
+                          ("(user ruling, 2026-10-20).", "(author's ruling, 2026-10-20)."),
+                          ("The user, 2026-10-20: a", "The author, 2026-10-20: a"),
+                          ("User ruling, 2026-10-20:", "Author's ruling, 2026-10-20:"),
+                          ("Rule (user, 2026-10-20)", "Rule (author, 2026-10-20)"),
+                          ("(User, 2026-10-21: \"A", "(Author, 2026-10-21: \"A"),
+                          ("(user standard, 2026-09-28)", "(author's standard, 2026-09-28)"),
+                          ("ask the user, then", "ask the user, then"),
+                          ("the user's approval (2026-09-28)", "the user's approval (2026-09-28)"),
+                          ("the user rule, see", "the user rule, see")):
+        check(reword_attribution(before) == after, "reword %r -> %r, got %r" % (before, after, reword_attribution(before)))
+    mine = b"# my rules\r\n- be nice\r\n"
+    merged = with_block(mine, b"# toolkit\r\n- rule\r\n")
+    check(merged.startswith(mine.rstrip()) and BLOCK_BEGIN.encode() in merged and b"- rule" in merged
+          and merged.endswith(BLOCK_END.encode() + b"\r\n"), "a merge keeps the user's text first")
+    again = with_block(merged, b"# toolkit\r\n- rule two\r\n")
+    check(again.startswith(mine.rstrip()) and b"- rule two" in again and b"- rule\r\n" not in again
+          and again.count(BLOCK_BEGIN.encode()) == 1, "a later install replaces only the block")
+    check(with_block(again, b"# toolkit\r\n- rule two\r\n") == again, "an unchanged block is a no-op")
+    lf = with_block(b"# mine\n- x\n", b"# toolkit\r\n- rule\r\n")
+    check(b"\r\n" not in lf and lf.startswith(b"# mine\n- x\n"), "an LF CLAUDE.md stays LF around the block")
+    for broken in (b"# mine\n" + BLOCK_BEGIN.encode() + b"\nstray\n",
+                   b"# mine\n" + BLOCK_END.encode() + b"\nx\n" + BLOCK_BEGIN.encode() + b"\n",
+                   b"# mine\n" + (BLOCK_BEGIN + "\na\n" + BLOCK_END + "\n").encode() * 2,
+                   b"# m\xfc\xdfe\n"):
+        try:
+            with_block(broken, b"# toolkit\n")
+            check(False, "broken markers or non-UTF-8 must be refused: %r" % broken[:40])
+        except InstallError:
+            check(True, "")
+    check(load_manifest(Path("Z:/no/such/place")) == {}, "a missing manifest is {}")
+    check(source_of("docs/x.md") == "global/docs/x.md" and source_of("CLAUDE.md") == "global/CLAUDE.md"
+          and source_of("skills/a/SKILL.md") == "skills/a/SKILL.md", "destination -> repo source mapping")
+
     for f in failures:
         print("FAIL: %s" % f.encode("ascii", "replace").decode("ascii"))
     print("install self-test: %d case(s), %d failure(s)" % (n, len(failures)))
@@ -433,6 +778,11 @@ def main():
     ap.add_argument("--wire-hooks", action="store_true",
                     help="add the hooks' entries to ~/.claude/settings.json (dry run unless --apply)")
     ap.add_argument("--python", help="the Python command hooks run with (default: detected)")
+    ap.add_argument("--profile", choices=["starter", "full"],
+                    help="starter: core rules + project-setup and adopt-project-standards; full: everything "
+                         "(default: the last install's, else full)")
+    ap.add_argument("--attribution", choices=["author", "user"],
+                    help="how dated rulings read: 'author's rule' (default for a new install) or 'user rule'")
     ap.add_argument("--self-test", action="store_true", help="run the installer's tests and exit")
     a = ap.parse_args()
 
@@ -457,36 +807,72 @@ def main():
             print("error: %s" % e)
             return 2
 
+    manifest = load_manifest()
+    facts = machine_facts(values["python"])
+    profile = a.profile or manifest.get("profile") or guess_profile()
     try:
-        rows = [(part, data, dst, classify(data, dst)) for part, data, dst in plan(parts, values, a.strict_git)]
+        attribution = a.attribution or manifest.get("attribution") or guess_attribution(values, facts)
+        opts = {"profile": profile, "attribution": attribution, "facts": facts}
+        print("profile: %s; rule attribution: %s" % (profile, attribution))
+        rows = []
+        for part, data, dst in plan(parts, values, a.strict_git, opts=opts):
+            rel = dst.relative_to(TARGET).as_posix()
+            state, out, path = decide(rel, data, dst, manifest, values, facts)
+            rows.append((part, rel, out, path, state))
     except InstallError as e:
         print("error: %s" % e)
         return 2
-    changes = [r for r in rows if r[3] != "same"]
-    for part, data, dst, state in rows:
-        if state != "same":
-            print("%-28s %s" % (state, dst))
+    if profile == "starter" and "skills" in parts:
+        for name in sorted(FULL_ONLY_SKILLS):
+            if (TARGET / "skills" / name).is_dir():
+                print("left installed (not part of starter; remove it yourself if unwanted): %s"
+                      % (TARGET / "skills" / name))
+    notes = {"KEEP": "  (you edited it; it is kept, the new version goes to this .new file)",
+             "MERGE": "  (your own CLAUDE.md: kept, the rules are added in a marked block)",
+             "BLOCK": "  (only the toolkit's marked block changes)"}
+    changes = [r for r in rows if r[4] != "same"]
+    for part, rel, out, path, state in changes:
+        print("%-28s %s%s" % (state, path, notes.get(state, "")))
     print("%d file(s) to add or change, %d already identical" % (len(changes), len(rows) - len(changes)))
     for f in extras(parts):
-        print("extra (left alone): %s" % f)
+        if not f.name.endswith(".new"):
+            print("extra (left alone): %s" % f)
 
+    backup = TARGET / "staging" / "install-backups" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     if a.apply and changes:
-        backup = TARGET / "staging" / "install-backups" / datetime.now().strftime("%Y%m%d-%H%M%S")
-        for part, data, dst, state in changes:
-            if dst.exists():
-                keep = backup / dst.relative_to(TARGET)
+        for part, rel, out, path, state in changes:
+            if path.exists():
+                keep = backup / path.relative_to(TARGET)
                 keep.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dst, keep)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(data)
-            if dst.read_bytes() != data:
-                print("FAILED to verify %s" % dst)
+                shutil.copy2(path, keep)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(out)
+            if path.read_bytes() != out:
+                print("FAILED to verify %s" % path)
                 return 1
         print("installed %d file(s); replaced files backed up under %s" % (len(changes), backup))
     elif a.apply:
         print("files: nothing to do.")
     else:
         print("dry run - nothing written. Re-run with --apply to install.")
+    if a.apply:
+        files = dict(manifest.get("files", {}))
+        for part, rel, out, path, state in rows:
+            if state != "KEEP" and path.name == Path(rel).name:
+                files[rel] = sha(path.read_bytes())
+        save = {"attribution": attribution, "files": files}
+        # the profile is only recorded by a run that shaped both CLAUDE.md and the skill set
+        if {"global", "skills"} <= parts:
+            save["profile"] = profile
+        elif "profile" in manifest:
+            save["profile"] = manifest["profile"]
+        mpath = TARGET / MANIFEST_NAME
+        text = json.dumps(save, indent=2, sort_keys=True) + "\n"
+        if not mpath.exists() or mpath.read_text(encoding="utf-8", errors="replace") != text:
+            if mpath.exists():
+                backup.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(mpath, backup / MANIFEST_NAME)
+            mpath.write_text(text, encoding="utf-8")
 
     if a.wire_hooks:
         try:

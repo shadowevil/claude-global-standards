@@ -5,6 +5,7 @@ per-project CLAUDE.md and project memory).
 
 ## Environment
 
+<!-- environment: begin -->
 - **Python is invoked as bare `python` on this machine, never `python3`.** Bare `python` is the
   real interpreter (`%LOCALAPPDATA%\Programs\Python\Python313\python.exe`, currently 3.13.x).
   `python3` resolves to a non-functional Windows Store alias (`%LOCALAPPDATA%\Microsoft\WindowsApps\
@@ -31,6 +32,7 @@ per-project CLAUDE.md and project memory).
   ```
 
   For a throwaway one-liner, `python -X utf8 -c ...` does the same job.
+<!-- environment: end -->
 
 ## Safety (binding in every project)
 
@@ -104,6 +106,7 @@ per-project CLAUDE.md and project memory).
   - `environment/databases.md` - safe read-only database access; read before any query.
   ```
 
+<!-- profile: full -->
 ## Hooks and skills
 
 - **Every hook and skill write goes through a review phase** (user rule, 2026-09-28: "All hook and

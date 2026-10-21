@@ -31,7 +31,7 @@ Concretely, after installing it:
      change gets a separate read-only reviewer; which model (Haiku, Sonnet, Opus) fits which job.
    - **Docs:** the lean-index rule, so agents read one small index and one targeted file instead of
      a whole large doc.
-2. **Four skills become available in every project:**
+2. **Four skills become available in every project** (the first two with `--profile starter`):
    - `project-setup`: say "set up this project's workflow" in a new project. It interviews you with
      clickable questions, shows a plan, then writes a project `CLAUDE.md`, agent team briefs, a team
      workflow, and optionally tickets, changelogs, backups, a metrics baseline and language packs.
@@ -52,12 +52,26 @@ Concretely, after installing it:
 ## What the installer changes on your machine
 
 - **Writes only under `~/.claude`** (`%USERPROFILE%\.claude` on Windows): `CLAUDE.md`, `docs/`,
-  `skills/<name>/` for the four skills, and with `--hooks`, `hooks/`.
-- **Replaces your `~/.claude/CLAUDE.md` if you have one.** It backs the old file up first, but it
-  does not merge. If you already have global rules, merge them into the clone's `global/CLAUDE.md`
-  before installing (or ask Claude to; the setup prompt below does). That leaves local changes in
-  the clone, so commit them on a branch of your own before you next update it. A merge made directly in
-  `~/.claude/CLAUDE.md` is replaced again by the next install that includes the rules.
+  `skills/<name>/`, a small record of what it installed (`.claude-global-standards.json`), and with
+  `--hooks`, `hooks/`.
+- **Two profiles.** `--profile full` (the default) installs everything. `--profile starter` installs
+  the core rules and the two setup skills (`project-setup`, `adopt-project-standards`) and does not
+  install the rule-making skills or their section of `CLAUDE.md`; it is the gentler start for someone
+  new to Claude Code. The choice is remembered, and `--profile full --apply` moves up later. Moving
+  from full down to starter never deletes the two extra skills; the dry run names them.
+- **Keeps your own `~/.claude/CLAUDE.md`.** If you already have one that the installer did not write,
+  your text is kept (only trailing blank lines are trimmed) and the toolkit's rules are added after
+  it, between two marker comments. Later installs change only what is between the markers. The dry
+  run shows this as MERGE (first time) or BLOCK (later). A `CLAUDE.md` that is not UTF-8, or whose
+  markers are broken, is refused with an error and left unchanged.
+- **Never overwrites a file you edited.** The record lists what the installer wrote. A file you have
+  changed since, `CLAUDE.md` included, is left alone and the new version is written beside it as
+  `<name>.new` for you to compare (the dry run says KEEP). To take the new version, copy the `.new`
+  file over yours. If the record is lost, the installer recognises its own earlier installs from the
+  clone's git history (so the clone must be a git clone, not a zip), and works out the profile from
+  which skills are installed.
+- **Describes your machine, not the author's.** The Environment section of `CLAUDE.md` is generated
+  for your Python command, its path and version, and your console's encoding.
 - **Backs up every file it replaces** under `~/.claude/staging/install-backups/<timestamp>/`.
 - **Never deletes anything.** Files in `~/.claude` that this repo does not ship are listed as
   "extra (left alone)".
@@ -72,7 +86,8 @@ Concretely, after installing it:
   `~/.claude/staging/install-backups/settings-<timestamp>/`. It never changes or removes an entry
   you already have, but it does rewrite the file's formatting (2-space indent, no byte-order mark).
   A `settings.json` it cannot parse, or one with an unexpected shape, is refused and left alone.
-- **Dry run by default.** Without `--apply` nothing is written; it lists each file as ADD or CHANGE.
+- **Dry run by default.** Without `--apply` nothing is written; it lists each file as ADD, CHANGE,
+  MERGE, BLOCK or KEEP.
 
 ## What it does not do
 
@@ -83,9 +98,9 @@ Concretely, after installing it:
 - It does not send anything anywhere. No telemetry; hit logs stay in `~/.claude/hooks/`.
 
 **Some content is still the author's own** and is worth reading before you install:
-- `global/CLAUDE.md` describes the author's Windows machine in places (bare `python` rather than
-  `python3`, a cp1252 console, rules quoted with the date the author made them). The rules hold on any
-  machine; the descriptions may not match yours.
+- The rules quote the dates the author made them. In your install they read "author's rule,
+  2026-..." so they are not mistaken for decisions you made (`--attribution user` keeps the
+  original wording). A few working-habit notes are Windows-specific (PowerShell 5.1, Git Bash).
 - `project-setup` ships its backup script, changelog format and metrics script in
   `skills/project-setup/bundled/`, so those work everywhere. Two parts need sources of your own: a
   ticket system and the C++ pack's longer wording and hooks. Point at them in
@@ -115,7 +130,8 @@ git clone https://github.com/shadowevil/claude-global-standards.git ~/.claude/sc
 cd ~/.claude/scratch/claude-global-standards
 ```
 
-Dry run, then install the rules, docs and skills:
+Dry run, then install the rules, docs and skills (add `--profile starter` to both for the smaller
+setup):
 
 ```bash
 python install.py
@@ -192,31 +208,30 @@ works from any folder. <clone> below means "<home>/.claude/scratch/claude-global
      (git creates the folders) and report `git -C "<clone>" log -1 --oneline`.
 3. Read "<clone>/README.md", "<clone>/docs/getting-started.md", "<clone>/install.py",
    "<clone>/global/CLAUDE.md" and "<clone>/hooks/RULES.md" in full.
-4. Dry runs, nothing written: `<py> "<clone>/install.py"` and
+4. Dry runs, nothing written: `<py> "<clone>/install.py" --profile starter`,
+   `<py> "<clone>/install.py" --profile full` and
    `<py> "<clone>/install.py" --only hooks --hooks --wire-hooks`. If ~/.claude/CLAUDE.md already
-   exists, compare it with "<clone>/global/CLAUDE.md" and list every rule of mine the new file lacks,
-   with a proposed merge. If the first dry run shows nothing to add or change and either
-   ~/.claude/hooks does not exist or the hooks dry run also shows nothing, say the toolkit is already
-   installed and current (hooks are optional), and stop.
-5. One question. First show a short plan: what will be installed; every file that will be replaced
-   (each is backed up first); my rules that would be lost and the merge you propose; one line per
-   hook (write guard W2/W3/W5 and log-only W4: writes and deletes; S1: a message when a project's
-   .claude folder passes 1 GB; M1: logs agent calls that pick no model) and the exact settings.json
-   entries they would add. Then ask, with these options:
-   - "Install rules and skills" (recommended; applies the proposed merge if I have a CLAUDE.md)
-   - "Install rules, skills and hooks" (the same, plus the hooks; they are advisory and block nothing)
-   - "Skills only, keep my CLAUDE.md"
+   exists and the dry run says MERGE, my file is kept and the toolkit's rules are added after it:
+   list any of my rules that contradict the new ones. If a plain `<py> "<clone>/install.py"` shows
+   nothing to add or change and either ~/.claude/hooks does not exist or the hooks dry run also shows
+   nothing, say the toolkit is already installed and current (hooks are optional), and stop.
+5. One question. First show a short plan: what each profile installs (starter: the core rules and the
+   project-setup and adopt-project-standards skills; full: everything); every file that would be
+   replaced (each is backed up first), merged, or kept because I edited it; any contradictions with
+   my own rules; one line per hook (write guard W2/W3/W5 and log-only W4: writes and deletes; S1: a
+   message when a project's .claude folder passes 1 GB; M1: logs agent calls that pick no model) and
+   the exact settings.json entries they would add. Then ask, with these options:
+   - "Starter" (recommended if this is my first Claude Code setup)
+   - "Full" (everything the author uses)
+   - "Full plus hooks" (the hooks are advisory and block nothing)
    - "Change something first" (I will say what, or say stop)
-6. Do what I chose:
-   - A merge goes into "<clone>/global/CLAUDE.md" (keep its {{...}} placeholders), never into
-     ~/.claude/CLAUDE.md; re-run the dry run and confirm it shows the merged file.
-   - Rules and skills: `<py> "<clone>/install.py" --apply`. Skills only:
-     `<py> "<clone>/install.py" --only skills --apply`.
-   - Hooks: `<py> "<clone>/install.py" --only hooks --hooks --apply`, then
-     `<py> "<clone>/install.py" --only hooks --wire-hooks --apply`.
+6. Do what I chose: `<py> "<clone>/install.py" --profile starter --apply` or
+   `<py> "<clone>/install.py" --profile full --apply`; for hooks, then
+   `<py> "<clone>/install.py" --only hooks --hooks --apply` and
+   `<py> "<clone>/install.py" --only hooks --wire-hooks --apply`.
 7. Verify, and report each item as passed or failed with its numbers:
-   - `<py> "<clone>/install.py"` shows 0 files to add or change (for "Skills only": add `--only skills`).
-   - The four skills exist under ~/.claude/skills/.
+   - `<py> "<clone>/install.py"` shows 0 files to add or change.
+   - The skills of the chosen profile exist under ~/.claude/skills/ (two for starter, four for full).
    - With hooks: `<py> "<clone>/install.py" --only hooks --hooks --wire-hooks` shows 0 files and
      every entry already wired, and `<py> -I -S -B "<home>/.claude/hooks/write_guard.py" --self-test`
      passes, and the same for size_guard.py and model_guard.py.
