@@ -29,7 +29,7 @@ Helbreath SDL has". The workflow it installs is `references/workflow.md` (its on
 | Component | Canonical source |
 |---|---|
 | Ticket system | `C:\Users\ShadowEvil\source\master-ticket-site\ticket-system` - follow its `docs\ADOPTING.md` end to end (owner: the Ticket Master session) |
-| Backup tool | **On hold** (2026-10-20): the canonical script can delete outside its backup folder (see Step 4, Backups). Owner: Helbreath SDL3. |
+| Backup tool | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\src\tools\scripts\backup.py`, as of Helbreath commit `426748ae` (hardened 2026-10-20 after a Ticket Master fault report). Owner: Helbreath SDL3. |
 | Changelog format | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\docs\changelog_format.md` |
 | Metrics baseline | `C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath\.claude\metrics\subagent_baseline.py` |
 | C++ pack | `packs/cpp-house-style.md` |
@@ -58,8 +58,6 @@ Gather, then report in at most 10 lines before asking anything:
 2. Tickets: full system with viewer (recommended) / none.
 3. Changelogs: technical + user-facing (recommended) / technical only / none.
 4. Backups before modifying: recommend yes when the repo holds untracked or binary assets, else no.
-   While the backup tool is on hold (component table), say so: a yes is recorded as "backups:
-   deferred" in the plan and nothing is copied.
 
 **Round B - team** (skip when solo; 3 questions):
 1. Areas: offer up to 4 proposals built from the detected source folders, each option naming its paths
@@ -83,9 +81,9 @@ Scratch is not asked: it is fixed globally at `.claude/scratch/<role>/<task>/` (
 
 The documentation standard is global (`~/.claude/docs/documentation_standards.md`) and is not asked.
 
-Changelog file names default to `dev-changelog.md` and `user-changelog.md` (backups are on hold, so
-no backup location is set). The ticket system's own values (name, prefix, port, CLI folder, authors) are asked
-by ADOPTING.md's sect. 1 when that step runs, not here.
+Changelog file names default to `dev-changelog.md` and `user-changelog.md`; the backup location is
+fixed by the script (`<repo>\.claude\.backups\`). The ticket system's own values (name, prefix,
+port, CLI folder, authors) are asked by ADOPTING.md's sect. 1 when that step runs, not here.
 
 ## Step 3 - Plan, then confirm once
 
@@ -117,13 +115,20 @@ entry "Workflow adopted <date> via project-setup: <choices>".
   its report to Ticket Master. Do not improvise around it.
 - **Changelogs:** create both files with an empty living entry; adapt `changelog_format.md` (strip
   Helbreath names and areas).
-- **Backups: ON HOLD - copy nothing** (2026-10-20). Ticket Master found that the canonical
-  `backup.ps1` deletes outside its backup folder: `purge -Set ..` removed `<repo>\.claude`, and a
-  `-NewFiles` path outside the repo was deleted at `restore`. Helbreath has since ported it to an
-  uncommitted `src\tools\scripts\backup.py`, which has the same holes (unvalidated set name and label,
-  a repo-prefix check with no trailing separator, unchecked new-file paths). The fault is with its
-  owner, Helbreath SDL3. Lift this hold only after the fixed version is committed there and reviewed,
-  and repoint the component table at it. Until then, record "backups: deferred" and tell the user why.
+- **Backups:** copy only the hardened version (component table). First confirm Helbreath's working
+  file still matches it: `git -C "C:\Users\ShadowEvil\source\Helbreath-SDL\Helbreath" diff --quiet
+  426748ae -- src/tools/scripts/backup.py` must exit 0. If it does not, stop and ask the Helbreath PM
+  whether the newer version is reviewed; never copy an unreviewed one (the older `backup.ps1` and the
+  first `backup.py` could delete outside their backup folder). The script finds the repo root as
+  `Path(__file__).resolve().parents[3]`, which is right only three folders deep: copy it to
+  `<repo>\src\tools\scripts\backup.py` (or another path exactly three deep), or change that index to
+  this project's depth. Then prove it before relying on it, from the project root:
+  1. `python src\tools\scripts\backup.py list` runs.
+  2. `save --label setup-proof --files src\tools\scripts\backup.py` prints a set name, and that set
+     appears under `<repo>\.claude\.backups\` (save only copies, so nothing is left behind).
+  3. `purge --set ..` is refused (exit 1, "not a backup set name") and deletes nothing.
+  4. `purge --set <the set from step 2>` removes only that set.
+  Gitignore `.claude/.backups/`.
 - **Metrics:** copy `subagent_baseline.py` to `.claude/metrics/` and set `PROJECT_SLUG`: the absolute
   project path with every character that is not a letter or digit replaced by `-`
   (`C:\Users\x\source\foo` -> `C--Users-x-source-foo`). If `~/.claude/projects/<slug>` exists, say so;
@@ -135,7 +140,7 @@ entry "Workflow adopted <date> via project-setup: <choices>".
 
 - Every path CLAUDE.md and the briefs point at exists.
 - Tickets: ADOPTING.md's verify section passes.
-- Backups: nothing copied while on hold.
+- Backups: the four-step proof above, refusal included.
 - `git status --short` shows only the files from the plan.
 - Any staged hook passes its self-test and has a review verdict before install.
 

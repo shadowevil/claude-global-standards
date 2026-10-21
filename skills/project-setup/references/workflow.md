@@ -21,7 +21,7 @@ Fill in this table first. Every later section refers to these names, not to anyt
 | Verifier | The role that proves things work and owns no source | `test` |
 | Contracts | The seams between areas that must be agreed before code (wire format, schema, API) | client <-> server packets; server <-> sql schema |
 | Scratch root | Fixed globally (2026-10-20): `.claude/scratch/<role>/<task>/`, gitignored | Helbreath predates it: `working/.claude-working/<role>/` |
-| Backup tool | A script that snapshots files before they are edited | on hold - see project-setup Step 4 |
+| Backup tool | A script that snapshots files before they are edited | `src/tools/scripts/backup.py` |
 | Changelogs | A technical one and a user-facing one | `dev-changelog.md`, `user-changelog.md` |
 | Ticket store | Where findings live | `.claude/tickets/*.json` plus a CLI and viewer |
 | Runtime the PM owns | Long-running services only the PM restarts | the dev game servers, the ticket viewer |

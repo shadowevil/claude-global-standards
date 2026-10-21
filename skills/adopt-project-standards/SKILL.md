@@ -86,8 +86,8 @@ Default order, re-ranked by the Step 1 numbers:
 4. **Friction from Step 1 C/D:** a rule that agents keep violating gets stated where they read it
    (their brief); tool errors become tool tickets for the tool's owner, not hooks.
 5. **Optional components** the user opts into, each done exactly as `project-setup` Step 4 describes
-   (tickets through the ticket system's ADOPTING.md; backups are on hold there; language packs per
-   their pack file).
+   (tickets through the ticket system's ADOPTING.md; backups through project-setup Step 4's gate and
+   four-step proof; language packs per their pack file).
 
 Present the table and the waves, then ask which waves to run (multiSelect, at most 4 options per
 question: with five waves, ask waves 1-3 in one question and 4-5 in a second).
