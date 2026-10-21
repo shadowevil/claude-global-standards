@@ -24,6 +24,7 @@ path after a cd that cannot be followed) is left unjudged and produces no row. 2
 approved): the old "W3-unresolved" row for such targets was removed - ~70% of all hit-log rows
 (7,112 measured), never denied, carrying no verdict anyone acted on.
 """
+import os
 import re
 
 from hooklib import paths
@@ -524,6 +525,9 @@ def decide(event, tool_hits, shell_hits, enforce):
 # a synthetic root - proves the rule is not hard-coded to any one project (no case below needs a
 # real directory on disk; every check here is lexical)
 ROOT = "C:\\Users\\ShadowEvil\\test-project-root"
+# the running user's real ~/.claude (always an allowed root); 2026-10-21: was hard-coded to the
+# owner's home, so these cases failed for anyone else. A plain env read keeps the import cheap.
+_TEST_CLAUDE = (os.environ.get("USERPROFILE") or os.environ.get("HOME") or "C:\\Users\\tester") + "\\.claude"
 
 # (tool, tool_input, must fire)
 TOOL_CASES = [
@@ -531,8 +535,8 @@ TOOL_CASES = [
     ("Edit", {"file_path": ROOT + "\\CLAUDE.md"}, False),
     ("Write", {"file_path": "C:\\snap-f1\\x.md"}, True),
     ("Write", {"file_path": "C:\\Users\\SHADOW~1\\AppData\\Local\\Temp\\x.md"}, True),
-    ("NotebookEdit", {"notebook_path": "C:\\Users\\ShadowEvil\\.claude\\projects\\foo\\memory\\x.ipynb"}, False),
-    ("NotebookEdit", {"notebook_path": "C:\\Users\\ShadowEvil\\.claude\\hooks\\x.ipynb"}, False),  # whole ~/.claude
+    ("NotebookEdit", {"notebook_path": _TEST_CLAUDE + "\\projects\\foo\\memory\\x.ipynb"}, False),
+    ("NotebookEdit", {"notebook_path": _TEST_CLAUDE + "\\hooks\\x.ipynb"}, False),  # whole ~/.claude
     ("MultiEdit", {"file_path": ROOT + "\\src\\shared\\x.h"}, False),
     ("Write", {"file_path": "src\\client\\x.cpp"}, False),  # relative, resolves under cwd==root
 ]

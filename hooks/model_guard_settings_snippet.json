@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/model_guard.py\"",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/model_guard.py\"",
             "timeout": 10
           }
         ]

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/size_guard.py\"",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/size_guard.py\"",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/size_guard.py\"",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/size_guard.py\"",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/size_guard.py\"",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/size_guard.py\"",
             "timeout": 10
           }
         ]

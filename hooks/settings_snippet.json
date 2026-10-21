@@ -3,7 +3,7 @@
   "hooks": [
     {
       "type": "command",
-      "command": "python -I -S \"C:/Users/ShadowEvil/.claude/hooks/write_guard.py\" --log-only",
+      "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/write_guard.py\" --log-only",
       "timeout": 10
     }
   ]

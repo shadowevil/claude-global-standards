@@ -32,7 +32,7 @@ one in line without losing what makes it work.
 ## Step 1 - Baseline
 
 ```
-python -B "C:\Users\ShadowEvil\.claude\skills\adopt-project-standards\tools\transcript_metrics.py" --project "<absolute project path>"
+{{PYTHON}} -B "{{CLAUDE_HOME}}\skills\adopt-project-standards\tools\transcript_metrics.py" --project "<absolute project path>"
 ```
 
 Optional `--since YYYY-MM-DD` limits it to recent sessions. Save the output where it survives until
