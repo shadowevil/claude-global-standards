@@ -258,4 +258,5 @@ Edit in this repo, never in `~/.claude` directly:
 | `global/docs/` | `~/.claude/docs/` |
 | `skills/<name>/` | `~/.claude/skills/<name>/` |
 | `hooks/` | `~/.claude/hooks/` with `--hooks`; `*settings_snippet.json` are what `--wire-hooks` adds |
+| `local-skills/<name>/` | `~/.claude/skills/<name>/`; your own machine-only skills, gitignored, never published |
 | `install.py` | not installed |
