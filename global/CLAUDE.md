@@ -63,6 +63,11 @@ per-project CLAUDE.md and project memory).
 - **CLAUDE.md files and an agent's own brief are already in context.** Never Read or grep them.
 - **PowerShell 5.1:** a trailing `Get-Process ... -ErrorAction SilentlyContinue` that matches nothing
   makes the whole command exit 1. Check processes in a separate call.
+- **"My browser" means the in-app browser** (user rule, 2026-10-25: "When I say I want it in my
+  browser, I do mean the in-app browser. If I state my external browser, then I want it in my default
+  browser"). "My browser" / "in my browser" is the Claude desktop browser pane (`mcp__Claude_Browser__*`);
+  "my external browser" / "default browser" is the system default browser (`Start-Process` / `open`).
+  If neither is said, use the in-app pane.
 - **Evidence over assertion.** Report checks as `verified` / `failed` / `unverified (and why)` and never
   round `unverified` up; every number says whether it was measured, derived or is unverified.
 
