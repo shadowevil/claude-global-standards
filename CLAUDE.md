@@ -32,4 +32,6 @@ global skills and the global hooks. Changes are made here, reviewed, committed, 
   `hooks/RULES.md` documents each rule.
 - Files carry `{{CLAUDE_HOME}}`, `{{CLAUDE_HOME_FWD}}` and `{{PYTHON}}` placeholders where a path or
   the Python command would go; `install.py` fills them per machine. Never hard-code a user path.
+- `local-skills/<name>/` - gitignored machine-only skills (they name this machine's paths, e.g.
+  `upscale-image`); installed with the skills, never committed. Same review phase as any skill.
 - `install.py` - the installer. `README.md` - for anyone adopting this.

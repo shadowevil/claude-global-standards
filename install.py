@@ -303,6 +303,16 @@ def plan(parts, values, strict_git=False, target=TARGET, opts=None):
                 continue
             if wanted(src):
                 yield part, shape(src.read_bytes(), src.name, values, opts), target / sub / rel
+    # machine-local skills (gitignored, never published): local-skills/<name>/ -> ~/.claude/skills/<name>/
+    local = REPO / "local-skills"
+    if "skills" in parts and local.is_dir():
+        for d in sorted(p for p in local.iterdir() if p.is_dir()):
+            if (REPO / "skills" / d.name).exists():
+                raise InstallError("local-skills/%s has the same name as a shipped skill; rename it" % d.name)
+            for src in sorted(d.rglob("*")):
+                if wanted(src):
+                    yield "skills", shape(src.read_bytes(), src.name, values, opts), \
+                        target / "skills" / src.relative_to(local)
 
 
 def classify(a, dst):
