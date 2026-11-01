@@ -7,7 +7,7 @@ call or at a session event. A hook never runs unless `~/.claude/settings.json` h
 `python install.py --only hooks --wire-hooks --apply` adds those entries (see the README).
 
 Contents: [Shared behaviour](#shared-behaviour) - [W2, W3, W5: the write guard](#w2-w3-w5-the-write-guard)
-- [S1: the .claude size flag](#s1-the-claude-size-flag) - [M1: the Agent model reminder](#m1-the-agent-model-reminder)
+- [S1: the .claude size flag](#s1-the-claude-size-flag) - [M1: the Agent model reminder](#m1-the-agent-model-reminder) - [X3: no interpreter reading stdin](#x3-no-interpreter-reading-its-program-from-stdin)
 
 ## Shared behaviour
 
@@ -112,3 +112,21 @@ the built-in and is honoured; a `.md` file with no `---` header is not a definit
   positives.
 - **Measured replay (2026-10-21):** 48 fires in 1,247 Agent calls (3.8%), 5 of 5 hand-checked hits
   real: general-purpose, Explore and Plan calls with no model, which inherit the main session's.
+
+## X3: no interpreter reading its program from stdin
+
+`stdin_guard.py`, PreToolUse on Bash and PowerShell. Rule (user, 2026-10-31: "100% CPU util is not
+acceptable"; global `CLAUDE.md` Working habits: no heredocs; `python -` has the same stdin hang). An interpreter told to
+read its program from stdin can hang there and spin a core for hours (2026-10-31: three leftover
+`python -` processes did). X3 flags `python -`, a bare `python`, `python <<EOF`, `cat x | python`,
+the same for node, ruby and perl, and a shell or PowerShell fed by a heredoc, here-string, pipe or `-s`.
+`python -c`, `-m`, `python script.py` and version or help calls pass.
+
+- **Log-only:** never denies unless `--enforce=X3` is on its command (not shipped).
+  `CLAUDE_STDIN_GUARD=log` forces log-only.
+- **Hit log:** `<project>/.claude/hooks/log/stdin_guard_hits.jsonl`, written only when that project's
+  `.claude` exists; nothing is logged without `CLAUDE_PROJECT_DIR`.
+- **Cost (measured 2026-10-31):** about 70-100 ms per shell call (p50 111-119 ms against a 41 ms bare
+  Python start).
+- **Known misses:** `python3.13 -` and `powershell -Command -`. **Known false positives** (log-only,
+  accepted): flag-only node calls such as `node --test`, and `python $(cat f)`.

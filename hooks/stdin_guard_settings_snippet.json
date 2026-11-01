@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/stdin_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
