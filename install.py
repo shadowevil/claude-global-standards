@@ -685,11 +685,11 @@ def self_test():
     v = make_values("C:\\Users\\x\\.claude", "python", "\\")
     snips = load_snippets(v)
     names = {s for _f, ev in snips for gs in ev.values() for g in gs for s in (script_of(h["command"]) for h in g["hooks"])}
-    check(names == {"write_guard.py", "size_guard.py", "model_guard.py"}, "snippet scripts: %r" % sorted(names))
+    check(names == {"write_guard.py", "size_guard.py", "model_guard.py", "stdin_guard.py"}, "snippet scripts: %r" % sorted(names))
     fresh, added, kept = merge_hooks({}, snips)
-    check(len(added) == 5 and not kept, "an empty settings.json gets all 5 entries, got %d/%d" % (len(added), len(kept)))
+    check(len(added) == 6 and not kept, "an empty settings.json gets all 6 entries, got %d/%d" % (len(added), len(kept)))
     _s, again, kept2 = merge_hooks(json.loads(json.dumps(fresh)), snips)
-    check(not again and len(kept2) == 5, "a second merge must add nothing (idempotent)")
+    check(not again and len(kept2) == 6, "a second merge must add nothing (idempotent)")
     mine = {"permissions": {"allow": ["Bash(ls)"]}, "hooks": {"PreToolUse": [
         {"matcher": "Write|Edit", "hooks": [{"type": "command",
          "command": 'python -I -S "C:/Users/x/.claude/hooks/write_guard.py" --log-only --enforce=W2,W3,W5'}]},
