@@ -2,8 +2,8 @@
 origin project hook (split_top_level, shell_tokens, mask_quotes) - nothing here
 is project-specific.
 """
+import functools
 import re
-import shlex
 
 ENV_ASSIGN = re.compile(r"^\s*(?:[A-Za-z_]\w*=\S*\s+)+")
 REDIRECT_TOKEN = re.compile(r"^\d*(>>?|<)")  # 2>nul, 2>&1, >>out.log, <in.txt, ... - never a target
@@ -16,7 +16,15 @@ def split_top_level(cmd):
 
 
 def split_top_level_seps(cmd):
-    """[(segment, sep_before, sep_after), ...] - sep is the separator text (';', '&&', '||', '|',
+    """See _split_top_level_seps_cached. WB-0009 (2026-10-31): W2, W3, W4 and W5 each split the
+    same command, so the split is memoized for the life of the process (one hook call); each
+    caller still gets its own fresh list (of immutable tuples)."""
+    return list(_split_top_level_seps_cached(cmd))
+
+
+@functools.lru_cache(maxsize=64)
+def _split_top_level_seps_cached(cmd):
+    """((segment, sep_before, sep_after), ...) - sep is the separator text (';', '&&', '||', '|',
     '&', newline, '{', '}') or None at either end of the command. Empty segments are dropped and
     their separators folded into the neighbour's. Otherwise identical to the original splitter:
     cmd split into segments at an unquoted ; && || | & { } or a bare newline (a doubled ;/&/|
@@ -86,7 +94,7 @@ def split_top_level_seps(cmd):
         out.append([seg, before, seps[k + 1]])
     for k in range(len(out) - 1):
         out[k][2] = out[k][2] if out[k][2] is not None else out[k + 1][1]
-    return [tuple(x) for x in out]
+    return tuple(tuple(x) for x in out)
 
 
 def expand_ps_commas(s):
@@ -134,19 +142,71 @@ def expand_ps_commas(s):
     return "".join(out)
 
 
+_SPLIT_WS = re.compile(r"[ \t\r\n]+")
+_SPLIT_WORD = re.compile(r"[^ \t\r\n]+")
+
+
+def split_nonposix(s):
+    """Exactly shlex.split(s, posix=False), in linear time (WB-0009, 2026-10-31).
+
+    shlex.shlex.read_token grows its token one character at a time with `self.token += c` on an
+    ATTRIBUTE, which CPython cannot resize in place, so every character copies the whole token so
+    far: quadratic in one token's length (a 1 MB one-line command took over 60 s, past the hook's
+    10 s timeout, after which Claude Code runs the call unchecked). With posix=False,
+    whitespace_split=True, no commenters and no punctuation_chars - the only configuration
+    shlex.split(posix=False) uses - read_token reduces to: whitespace is exactly ' \\t\\r\\n'; a
+    token starting with ' or " runs to the next same quote INCLUSIVE and ends there (no escapes in
+    non-posix mode; an unclosed quote raises ValueError("No closing quotation")); any other token
+    runs to the next whitespace, quotes inside it being ordinary characters. That is what this
+    does, with slices instead of per-character concatenation. A differential test against
+    shlex.split(posix=False) lives with the WB-0009 staging scripts."""
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        m = _SPLIT_WS.match(s, i)
+        if m:
+            i = m.end()
+            if i >= n:
+                break
+        c = s[i]
+        if c == "'" or c == '"':
+            j = s.find(c, i + 1)
+            if j < 0:
+                raise ValueError("No closing quotation")
+            out.append(s[i:j + 1])
+            i = j + 1
+            continue
+        m = _SPLIT_WORD.match(s, i)
+        out.append(m.group())
+        i = m.end()
+    return out
+
+
 def shell_tokens(segment, powershell=False):
     """segment's words with quotes stripped, redirections (2>nul, >>out.log, ...) dropped, or None
     if it does not tokenize (unbalanced quotes - fails open: the segment is skipped rather than
     guessed at). `powershell` gates expand_ps_commas: a Bash filename may legitimately contain a
     literal comma (`rm x,y` is ONE target named "x,y"), so comma-splitting only runs for a segment
     that is actually PowerShell - callers pass this from the event's own tool_name (bug found in
-    review, 2026-09-28: `rm C:\\...\\x,y` was misread as two targets and `y` flagged as relative)."""
+    review, 2026-09-28: `rm C:\\...\\x,y` was misread as two targets and `y` flagged as relative).
+
+    WB-0009 (2026-10-31): every rule module tokenizes the same segments again, so the result is
+    memoized per (segment, powershell) for the life of the process (one hook call); each caller
+    still gets its own fresh list."""
+    toks = _shell_tokens_cached(segment, bool(powershell))
+    return None if toks is None else list(toks)
+
+
+@functools.lru_cache(maxsize=4096)
+def _shell_tokens_cached(segment, powershell):
+    """shell_tokens' pure body; returns a tuple (or None) so the cached value cannot be mutated."""
     s = ENV_ASSIGN.sub("", segment, count=1).strip()
     s = re.sub(r"^&\s*", "", s)  # a leading PowerShell call operator
     if powershell:
         s = expand_ps_commas(s)
     try:
-        toks = shlex.split(s, posix=False)  # posix=False: never eats backslashes in C:\... paths
+        toks = split_nonposix(s)  # == shlex.split(s, posix=False): never eats C:\... backslashes
     except ValueError:
         return None
     out = []
@@ -156,13 +216,15 @@ def shell_tokens(segment, powershell=False):
         if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"'):
             t = t[1:-1]
         out.append(t)
-    return out
+    return tuple(out)
 
 
+@functools.lru_cache(maxsize=4096)
 def mask_quotes(s):
     """s with every quoted character (including the quote marks) replaced by 'x', same length -
     so a regex can be run against it to find only UNQUOTED matches, then re-sliced out of the
-    original s by span (masking never changes any character's position)."""
+    original s by span (masking never changes any character's position). Memoized (WB-0009): the
+    rule modules mask the same segments repeatedly; the result is an immutable str."""
     out = list(s)
     quote = None
     for i, c in enumerate(s):

@@ -37,6 +37,13 @@ several rules is one brief.
 
 ## Step 2 - dispatch the hooks agent
 
+**Hook work runs in parallel and never stalls the task at hand** (user ruling, 2026-10-31: "Don't
+get stuck in hooks - work in parallel when working with hooks"; "if an agent starts hook work. It
+should not interfere with the task at hand, unless that would cause issues"). Dispatch it in the
+background and carry on with the user's task; come back to it when it reports. Stop for it only when
+leaving it would cause problems, such as a hook actively blocking or breaking the current work.
+The review phase and the global-hook approval still apply.
+
 Agent type `claude`, background; the project's model rules, else the global model-tier rule: Sonnet
 to add a log-only or advisory rule to an existing framework, Opus when there is no framework yet, the
 rule is hard to classify, or it can deny, delete or guard writes. One hooks agent at a time -
