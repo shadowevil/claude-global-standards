@@ -26,6 +26,7 @@ Contents: [Shared behaviour](#shared-behaviour) - [W2, W3, W5: the write guard](
 
 | Rule | Fires when | Why |
 |---|---|---|
+| W0 | a Bash/PowerShell command is too large to check inside the hook's 10 s timeout: over 131,072 characters, 1,000 top-level parts, 1,000 write/delete targets, 4,096 path separators across those targets, or 64 in any one target | past the timeout Claude Code lets the call through unchecked; none of 296,012 real commands measured on this machine comes near a cap |
 | W2 | a delete names its target with a relative path, a variable, `~`, a command substitution, a pipe, or a wildcard anywhere but the last path segment | an agent deleting the wrong folder is the costliest mistake there is; a literal absolute path can be checked before it runs |
 | W3 | a write lands outside the session's project folder (`CLAUDE_PROJECT_DIR`) and `~/.claude` | keeps each session inside its own project; everything else is read-only |
 | W5 | a write lands in a system temp folder (`/tmp`, `%TEMP%`, `AppData\Local\Temp`) | keeps scratch work inside the project, where it can be found and cleaned up |
@@ -37,6 +38,24 @@ and keep `--log-only` on the line; the `--enforce=` list then names the only rul
 Recommended: run log-only for about a week, read the hit log (`hooks/hits_summary.py` summarizes it),
 then enforce. An unknown id in `--enforce=` is ignored and recorded, never a crash.
 `CLAUDE_WRITE_GUARD=log` in the environment is the kill switch: nothing denies.
+
+**W0 is different** (rules/execute/w0_too_large.py; user decision 2026-10-31: "Go with the size cap,
+deny oversized commands"). It runs before every other rule and denies in every mode, including
+`--log-only` and any `--enforce` list; it is not an `--enforce` id. It logs one `too-large` row (the
+sizes, the caps and a 60-character head, never the full command). Under the kill switch it logs with
+`denied:false` and does not deny: the switch means nothing denies, and whoever sets it accepts that an
+oversized call may time the hook out unchecked. A denied call is fixed by splitting the command, or by
+writing a script file with the Write tool inside the project's `.claude/` folder and running that.
+Write/Edit/MultiEdit/NotebookEdit are not capped.
+
+**Known gaps, low priority** (user decision, 2026-10-31: fix only if they show up in real use; none of
+~296,000 real commands came near them, every slow case was built on purpose, and the guard is a
+safety net against mistakes, not a defence against a hostile agent):
+- `hooklib/paths.py` `resolve_real_prefix` resolves UNC and `//host` paths, which is a network
+  round-trip: `touch //10.255.255.1/share/f` took about 21 s, past the 10 s hook timeout, so the call
+  goes through unchecked. Fix if needed: never resolve UNC, `//host` or `\\?\UNC\` paths.
+- W4 reads and hashes a copy's source file once per guarded destination (11.7 MB to 999
+  destinations took 17 s). Fix if needed: hash each source once per call, with a byte budget.
 
 ## S1: the .claude size flag
 

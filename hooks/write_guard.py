@@ -15,6 +15,9 @@ it carries no path, doc name or rule text belonging to any one repo.
                          (deny JSON, ASCII hit log with its size cap, verdict merging)
     rules/write/          w3_outside_root.py - WHERE a write (or delete) may land
     rules/delete/          w2_literal_delete_paths.py - HOW a delete's target must be expressed
+    rules/execute/         w0_too_large.py - a shell command too large to check in time (runs
+                           FIRST, denies in every mode but the CLAUDE_WRITE_GUARD=log kill switch;
+                           WB-0055, 2026-10-31)
 
 Enforcement: user decision, 2026-09-28 - the global package installs with `--log-only` on its own
 settings.json command line for about a week, so the user can decide real enforcement from the hit
@@ -81,6 +84,7 @@ from rules.write import w3_outside_root  # noqa: E402
 from rules.write import w4_review_stamp  # noqa: E402
 from rules.write import w5_temp_dir  # noqa: E402
 from rules.delete import w2_literal_delete_paths  # noqa: E402
+from rules.execute import w0_too_large  # noqa: E402
 
 # which action(s) a tool call performs; a Bash/PowerShell command can itself contain several
 # actions (e.g. `cp a b; rm c`) - that finer classification happens inside each rule module, which
@@ -315,13 +319,36 @@ def module_enforce(mod, global_enforce, enforce_ids, env_log, enforce_listed=Fal
     return getattr(mod, "RULE_ID", "").upper() in enforce_ids
 
 
+def precheck(event):
+    """(rows, verdict) when W0 finds the shell command too large to check in time, else None.
+    W0 (WB-0055, 2026-10-31) runs before ANY rule module parses the command, and denies in every
+    mode (`--log-only` and any `--enforce=` list included) because a hook timeout would otherwise
+    let the call through unchecked; only the CLAUDE_WRITE_GUARD=log kill switch stops the deny (the
+    row is still logged, denied: false). Fail open: if the check itself raises, None - the rules
+    then run as before."""
+    try:
+        started = time.time()
+        info = w0_too_large.check(event)
+        if info is None:
+            return None
+        env_log = output.env_log_only()
+        rows = w0_too_large.log_rows(event, info, int((time.time() - started) * 1000))
+        for row in rows:
+            row["denied"] = not env_log
+        return rows, (None if env_log else w0_too_large.deny(info))
+    except Exception:
+        return None
+
+
 def process(event, argv):
     """(rows, verdict, issues) for one PreToolUse event under this command line. `rows` are every
     module's log rows, each with a `denied` flag; `verdict` is the ONE merged deny (or None) that
     carries only the reasons of rule modules allowed to enforce - a delete failing both W2 and W3
     under `--enforce=W2` denies with W2's reason alone while W3's row is still logged (denied:
-    false). A decide() that raises is fail-open: no deny, rows still logged."""
-    detailed = run_detailed(event)
+    false). A decide() that raises is fail-open: no deny, rows still logged. A shell command over a
+    W0 cap (precheck) returns W0's row and deny alone - no rule module runs on it."""
+    pre = precheck(event)
+    detailed = run_detailed(event) if pre is None else []
     enforce_ids, issues = set(), []
     enforce_listed = False
     try:
@@ -329,6 +356,8 @@ def process(event, argv):
         enforce_ids, issues = parse_enforce(argv)
     except Exception:
         pass  # fail open: an unparseable --enforce is no enforcement, never a crash
+    if pre is not None:
+        return pre[0], pre[1], issues
     verdicts = [None] * len(detailed)
     try:
         if any(th or sh for _mod, th, sh, _rows in detailed):
@@ -661,12 +690,102 @@ def enforce_self_test(failures):
     return n
 
 
+def w0_process_self_test(failures):
+    """W0 through process() and the real entry point (WB-0055): an over-cap command denies in every
+    mode except the CLAUDE_WRITE_GUARD=log kill switch, its W0 row is the ONLY row (no rule module
+    runs on it), an at-cap command runs the rules exactly as before, and the over-cap deny is fast.
+    Appends to `failures`; returns the number of cases it ran."""
+    import subprocess
+    import tempfile
+
+    n = 0
+    root = w3_outside_root.ROOT
+
+    def check(ok, msg):
+        nonlocal n
+        n += 1
+        if not ok:
+            failures.append("W0 process: " + msg)
+
+    def outcome(cmd, argv, tool="Bash"):
+        rows, verdict, _issues = process({"tool_name": tool, "cwd": root, "tool_input": {"command": cmd}},
+                                         argv)
+        out = (verdict or {}).get("hookSpecificOutput", {})
+        return (out.get("permissionDecision") == "deny", out.get("permissionDecisionReason", ""),
+                sorted((r["rule"], r["denied"]) for r in rows))
+
+    # over the char cap, with a W2-tripping delete at the end that the rules never get to see
+    over = "echo " + "x" * w0_too_large.MAX_CHARS + "; rm -rf build"
+    at_cap = "rm -rf build; echo " + "x" * (w0_too_large.MAX_CHARS - len("rm -rf build; echo "))
+    saved_env = os.environ.get("CLAUDE_WRITE_GUARD")
+    os.environ.pop("CLAUDE_WRITE_GUARD", None)
+    try:
+        for tool in ("Bash", "PowerShell"):
+            for argv in (["--log-only"], ["--log-only", "--enforce=W2"], ["--log-only", "--enforce=W2,W3,W5"],
+                         [], ["--log-only", "--enforce=W9"]):
+                d, reason, rows = outcome(over, argv, tool)
+                check(d and reason.startswith("W0:") and rows == [("W0", True)],
+                      "%s %r: an over-cap command must deny with W0 alone, got %r %r"
+                      % (tool, argv, d, rows))
+        d, _r, rows = outcome(at_cap, ["--log-only", "--enforce=W2"])
+        check(len(at_cap) == w0_too_large.MAX_CHARS and d and ("W2", True) in rows
+              and all(r != "W0" for r, _f in rows),
+              "an at-cap command must run the rules as before (W2 deny, no W0), got %r %r" % (d, rows))
+        d, _r, rows = outcome(at_cap, ["--log-only"])
+        check(not d and ("W2", False) in rows, "at cap under plain --log-only: logged, not denied")
+        os.environ["CLAUDE_WRITE_GUARD"] = "log"
+        d, _r, rows = outcome(over, [])
+        check(not d and rows == [("W0", False)],
+              "CLAUDE_WRITE_GUARD=log: W0 must log (denied:false) and never deny, got %r %r" % (d, rows))
+        os.environ.pop("CLAUDE_WRITE_GUARD", None)
+        # fail open: a raising W0 check must leave the rules to run as before
+        real_check = w0_too_large.check
+        try:
+            def boom(_ev):
+                raise RuntimeError("selftest: W0 check blew up")
+            w0_too_large.check = boom
+            d, _r, rows = outcome("rm -rf build", ["--log-only", "--enforce=W2"])
+            check(d and rows == [("W2", True)], "a raising W0 check must fail open to the rules, got %r" % rows)
+        finally:
+            w0_too_large.check = real_check
+        # the real entry point: a 3 MB over-cap command denies fast, ASCII, with a W0 row logged
+        with tempfile.TemporaryDirectory() as td:
+            scratch = os.path.join(td, "w0_probe_hits.jsonl")
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_WRITE_GUARD"}
+            big = "echo " + ("word " * 600000) + "; rm -rf build"
+            t0 = time.time()
+            p = subprocess.run([sys.executable, "-I", "-S", os.path.join(HERE, "write_guard.py"),
+                                "--log-only", "--enforce=W2,W3,W5", "--hits-path=" + scratch],
+                               input=json.dumps({"tool_name": "Bash", "cwd": root,
+                                                 "tool_input": {"command": big}}),
+                               capture_output=True, text=True, env=env, timeout=60)
+            elapsed = time.time() - t0
+            check(p.returncode == 0 and '"deny"' in p.stdout and "W0:" in p.stdout and p.stdout.isascii(),
+                  "subprocess: a 3 MB command must print an ASCII W0 deny, got %r" % p.stdout[:160])
+            check(elapsed < 3.0, "subprocess: the over-cap deny must be fast, took %.2fs" % elapsed)
+            try:
+                with open(scratch, encoding="ascii") as fh:
+                    logged = [json.loads(ln) for ln in fh.read().split("\n") if ln]
+            except (OSError, ValueError):
+                logged = []
+            check(len(logged) == 1 and logged[0].get("rule") == "W0" and logged[0].get("denied") is True
+                  and logged[0].get("chars") == len(big) and os.path.getsize(scratch) < 4000,
+                  "subprocess: exactly one small W0 row (denied, with its size) must be logged, got %r"
+                  % [(r.get("rule"), r.get("chars")) for r in logged])
+    finally:
+        if saved_env is None:
+            os.environ.pop("CLAUDE_WRITE_GUARD", None)
+        else:
+            os.environ["CLAUDE_WRITE_GUARD"] = saved_env
+    return n
+
+
 def self_test():
     import tempfile
 
     failures = []
     n_cases = 0
-    for mod in (w3_outside_root, w4_review_stamp, w2_literal_delete_paths, w5_temp_dir):
+    for mod in (w3_outside_root, w4_review_stamp, w2_literal_delete_paths, w5_temp_dir, w0_too_large):
         failures.extend(mod.run_self_test())
         n_cases += len(getattr(mod, "TOOL_CASES", ()))
         n_cases += len(getattr(mod, "SHELL_CASES", ()))
@@ -864,6 +983,7 @@ def self_test():
     n_cases += 2  # the snippet's enforce list and its flag-problem check
 
     n_cases += enforce_self_test(failures)
+    n_cases += w0_process_self_test(failures)
 
     # W5 supersedes W3 (2026-10-18): a temp target is ONE row, W5 - never also W3
     from hooklib import paths
