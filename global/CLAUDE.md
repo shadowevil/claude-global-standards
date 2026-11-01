@@ -123,6 +123,11 @@ per-project CLAUDE.md and project memory).
   exception: review it, then install. It binds every Claude session and every agent, in every project,
   and the `rule-hook-agent` / `pattern-skill-agent` skills carry it too ("It needs to be for any claude
   session when using the skill(s)").
+- **Hook work runs in parallel and never stalls the task at hand** (user ruling, 2026-10-31: "Don't
+  get stuck in hooks - work in parallel when working with hooks"). Staging, measuring, reviewing and
+  installing a hook go to a background agent while the session keeps working on the user's task;
+  interrupt that task only when leaving the hook would cause problems (it is blocking or breaking the
+  current work). The review and approval rules here still apply.
 - **Global hooks need the user's approval** (2026-09-28). Suggest one; install only when the user
   approves that install.
 - **Hooks are separate files grouped by action** (2026-09-28): thin entry points, a shared library by
