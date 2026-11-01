@@ -118,15 +118,36 @@ the built-in and is honoured; a `.md` file with no `---` header is not a definit
 `stdin_guard.py`, PreToolUse on Bash and PowerShell. Rule (user, 2026-10-31: "100% CPU util is not
 acceptable"; global `CLAUDE.md` Working habits: no heredocs; `python -` has the same stdin hang). An interpreter told to
 read its program from stdin can hang there and spin a core for hours (2026-10-31: three leftover
-`python -` processes did). X3 flags `python -`, a bare `python`, `python <<EOF`, `cat x | python`,
-the same for node, ruby and perl, and a shell or PowerShell fed by a heredoc, here-string, pipe or `-s`.
-`python -c`, `-m`, `python script.py` and version or help calls pass.
+`python -` processes did).
 
-- **Log-only:** never denies unless `--enforce=X3` is on its command (not shipped).
-  `CLAUDE_STDIN_GUARD=log` forces log-only.
+**Enforced** (decision 2026-11-01, asked whether to enforce, the user said "Your
+choice"; the session chose enforce because agents kept running `python -`). The shipped
+command carries `--enforce=X3`. X3 has two tiers:
+
+| Tier | Fires on | Effect |
+|---|---|---|
+| deny (`dash`) | `-` as the program of python / python3 / python3.13 / py / pythonw / pypy: `python -`, `python -X utf8 -`, `py -3 -`, `cat x.py \| python -` | denied |
+| deny (`heredoc`) | an interpreter (python family, node, ruby, perl, bash / sh / zsh / dash, powershell / pwsh) that names no other program and reads a heredoc, a bash `<<<` here-string, or a pipe from a heredoc or PowerShell here-string: `python <<EOF`, `bash <<'EOF'`, `cat <<EOF \| python`, `@'...'@ \| python` | denied |
+| log (`no-source`) | the rest: a bare `python` or `node`, `echo x \| python`, `curl x \| bash`, `bash -s`, `node -` | logged, let through |
+
+Passes: `python -c`, `python -m`, `python -X utf8 script.py`, `python file.py`, a `-` that belongs to the
+script or module (`python script.py -`, `python -m json.tool -`), a heredoc feeding a script's stdin
+(`python script.py <<EOF`), version and help calls. The deny message: "python - / heredoc to an
+interpreter hangs on stdin; write the script with the Write tool into the project's .claude\scratch and
+run it with a timeout".
+
+- **Switches:** without `--enforce=X3` on the command nothing denies; `CLAUDE_STDIN_GUARD=log` in the
+  environment forces log-only (the kill switch). A parse or rule error fails open.
 - **Hit log:** `<project>/.claude/hooks/log/stdin_guard_hits.jsonl`, written only when that project's
-  `.claude` exists; nothing is logged without `CLAUDE_PROJECT_DIR`.
-- **Cost (measured 2026-10-31):** about 70-100 ms per shell call (p50 111-119 ms against a 41 ms bare
-  Python start).
-- **Known misses:** `python3.13 -` and `powershell -Command -`. **Known false positives** (log-only,
-  accepted): flag-only node calls such as `node --test`, and `python $(cat f)`.
+  `.claude` exists; nothing is logged without `CLAUDE_PROJECT_DIR`. Rows carry `kind` and `denied`.
+- **Measured before enforcing (2026-11-01, one project):** live log 31 hits (2026-11-01 04:14-12:00 UTC),
+  29 true positives, 2 false positives (`timeout 600 python $(basename $f)`, which parses as a bare
+  `python`). Replay over all 7,446 shell calls in the project's transcripts (2026-10-31 and 11-01, 174
+  files): 81 hits; the enforced rule denies 79, every one a hand-checked `python ... -` (58 with a heredoc,
+  21 without); the 2 false positives fall in the log tier and are not denied. False denies: 0.
+- **Cost:** about 70-100 ms per shell call, almost all interpreter start-up (2026-10-31); the check
+  itself 0.62 ms per call before the change, 0.65 ms after (in-process, 500 calls, 2026-11-01).
+- **Known misses:** `powershell -Command -` (the parser expands `-Command` and drops the `-`), and a
+  here-string held in a variable and piped later (`$s | python`, log tier only), and wrappers the
+  parser does not look through (`xargs python -`, `uv run python -`). **Known false positives**, log
+  tier only: flag-only node calls such as `node --test`, `py -0p` / `py --list`, and `python $(cat f)`.

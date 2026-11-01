@@ -5,8 +5,11 @@ node / ruby / perl, and a shell or PowerShell fed by a heredoc, here-string, pip
 stdin and spin a core for hours (measured 2026-10-31: three such leftovers). Write the script to a
 file and run `timeout 600 python <file>` instead.
 
-LOG-ONLY and advisory: it never denies unless `--enforce=X3` is on its command line (not shipped).
-Wire it on ONE event, for the shell tools:
+ENFORCED since 2026-11-01 (the user left it to the session, "Your choice"; it chose enforce):
+the shipped command carries `--enforce=X3`. Only the deny tier denies - `python -` (python / python3 / py
+and versioned names) and a heredoc or here-string feeding an interpreter that names no other program;
+every other X3 hit (a bare `python`, `echo x | python`, `curl x | bash`) is logged and let through.
+Without `--enforce=X3` nothing denies. Wire it on ONE event, for the shell tools:
 
     PreToolUse   (matcher Bash|PowerShell)
 
@@ -18,10 +21,11 @@ CLAUDE_PROJECT_DIR and the log lives in that project's .claude/.
     hooklib/command.py           parses a Bash / PowerShell command line into segments (new file)
     rules/execute/x3_interpreter_stdin.py   the rule, its message and its self-test cases
 
-    python -I -S stdin_guard.py                 (shipped: log-only)
+    python -I -S stdin_guard.py --enforce=X3    (shipped: the deny tier denies)
+    python -I -S stdin_guard.py                 (log-only)
     python -I -S stdin_guard.py --self-test
     python -I -S stdin_guard.py --time=N        (ms per in-process call)
-  flags: --enforce=X3   the only id allowed to deny (not shipped)
+  flags: --enforce=X3   the only id allowed to deny (shipped)
          --root=PATH    override CLAUDE_PROJECT_DIR
          --log=PATH     hit log; must lie inside <root>/.claude/hooks/log/ or it is ignored
   CLAUDE_STDIN_GUARD=log in the environment forces log-only even with --enforce (a kill switch).
@@ -142,10 +146,14 @@ def process(event, argv, root=None):
     tool_input = event.get("tool_input")
     if tool not in TOOLS or not isinstance(tool_input, dict) or not isinstance(tool_input.get("command"), str):
         return None
-    cmd = command.parse(tool_input["command"])
-    if cmd.truncated:
+    try:
+        cmd = command.parse(tool_input["command"])
+        if cmd.truncated:
+            return None
+        hits = x3.check(cmd) or []
+        denying = x3.deny_hits(hits)
+    except Exception:  # fail open: a parse or rule error never blocks a tool call
         return None
-    hits = x3.check(cmd) or []
     if not hits:
         return None
     ms = (time.perf_counter() - t0) * 1000.0
@@ -153,11 +161,13 @@ def process(event, argv, root=None):
     session = str(event.get("session_id") or "")[:12]
     rows = [{"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "rule": x3.ID, "mode": mode, "tool": tool,
              "line": int(h.get("line") or 0), "excerpt": excerpt(h.get("excerpt") or ""),
+             "kind": ascii_only(h.get("kind") or ""), "denied": bool(mode == "enforce" and h.get("deny")),
              "msg": ascii_only(h.get("message") or ""), "session": ascii_only(session), "ms": round(ms, 2)}
             for h in hits[:50]]
     write_rows(rows, log_path(root, argv))
-    if mode == "enforce":
-        return deny_verdict(["%s %s" % (x3.ID, h.get("message") or x3.TITLE) for h in hits[:1]])
+    if mode == "enforce" and denying:
+        h = denying[0]
+        return deny_verdict(["%s %s (matched: %s)" % (x3.ID, h.get("message") or x3.TITLE, excerpt(h.get("excerpt") or "")[:80])])
     return None
 
 
@@ -226,6 +236,13 @@ def run_cases(mod):
             hits = mod.check(command.parse(case["command"]))
             expect = case["expect"]
             ok = len(hits) >= 1 if expect is True else (len(hits) == 0 if expect is False else len(hits) == int(expect))
+            want_deny = int(case.get("deny", 0))
+            got_deny = len(mod.deny_hits(hits))
+            if ok and got_deny != want_deny:
+                ok = False
+                notes.append("  %s %s: expected %d deny hit(s), got %d" % (mod.ID, case.get("name"), want_deny, got_deny))
+                failed += 1
+                continue
         except Exception as exc:
             ok = False
             hits = []
@@ -292,6 +309,40 @@ def self_test():
         else:
             os.environ["CLAUDE_STDIN_GUARD"] = saved
     checks.append(("--enforce=X3 denies and the kill switch stops it", ok and killed))
+    reset()
+    verdict = process(bash("python - <<'EOF'\nprint(1)\nEOF"), ["--enforce=X3", log_arg], root=root)
+    reason = verdict["hookSpecificOutput"]["permissionDecisionReason"] if verdict else ""
+    ok = reason.startswith("X3 " + x3.DENY_MESSAGE) and reason == ascii_only(reason) and "Write tool" in reason
+    logged = [(r.get("mode"), r.get("kind"), r.get("denied")) for r in rows()]
+    checks.append(("enforce: python - heredoc denied with the ASCII message, row says denied",
+                   ok and logged == [("enforce", "dash", True)]))
+    reset()
+    passed_through = [process(bash(t), ["--enforce=X3", log_arg], root=root) is None for t in
+                      ("python -c \"print(1)\"", "python -m py_compile a.py", "python -X utf8 tools/x.py", "python x.py -",
+                       "timeout 600 python .claude/scratch/x/run.py")]
+    checks.append(("enforce: -c, -m, -X utf8 script, script -, timeout script pass and log nothing",
+                   all(passed_through) and rows() == []))
+    reset()
+    log_tier = process(bash("echo 'print(1)' | python"), ["--enforce=X3", log_arg], root=root) is None
+    logged = [(r.get("kind"), r.get("denied")) for r in rows()]
+    checks.append(("enforce: a log-tier hit (echo | python) passes and is logged as not denied",
+                   log_tier and logged == [("no-source", False)]))
+    reset()
+    real_check = x3.check
+    real_parse = command.parse
+
+    def boom(*_a, **_k):
+        raise ValueError("selftest")
+    try:
+        x3.check = boom
+        rule_err = process(bash("python -"), ["--enforce=X3", log_arg], root=root) is None
+        x3.check = real_check
+        command.parse = boom
+        parse_err = process(bash("python -"), ["--enforce=X3", log_arg], root=root) is None
+    finally:
+        x3.check = real_check
+        command.parse = real_parse
+    checks.append(("enforce: a rule or parse error fails open", rule_err and parse_err and rows() == []))
     reset()
     stray = os.path.join(root, ".claude", "hooks", "..", "stray_stdin.jsonl")
     process(bash("python -"), ["--log=" + stray], root=root)

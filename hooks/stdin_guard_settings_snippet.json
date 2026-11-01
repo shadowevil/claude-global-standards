@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/stdin_guard.py\"",
+            "command": "{{PYTHON}} -I -S \"{{CLAUDE_HOME_FWD}}/hooks/stdin_guard.py\" --enforce=X3",
             "timeout": 10
           }
         ]
