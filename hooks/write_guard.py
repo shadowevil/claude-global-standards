@@ -14,6 +14,8 @@ it carries no path, doc name or rule text belonging to any one repo.
                          shared delete_verb_targets used by both rule modules below), output.py
                          (deny JSON, ASCII hit log with its size cap, verdict merging)
     rules/write/          w3_outside_root.py - WHERE a write (or delete) may land
+                          w7_naming.py - a NEW file/folder name breaking the naming rule (log-only,
+                           ALWAYS_LOG_ONLY like W4; imported fail-open; 2026-11-23)
     rules/delete/          w2_literal_delete_paths.py - HOW a delete's target must be expressed
     rules/execute/         w0_too_large.py - a shell command too large to check in time (runs
                            FIRST, denies in every mode but the CLAUDE_WRITE_GUARD=log kill switch;
@@ -83,6 +85,17 @@ from hooklib import output  # noqa: E402
 from rules.write import w3_outside_root  # noqa: E402
 from rules.write import w4_review_stamp  # noqa: E402
 from rules.write import w5_temp_dir  # noqa: E402
+try:
+    # W7 (log-only naming rule, 2026-11-23) is imported fail-open: a broken W7 must never take the
+    # enforced W2/W3/W5 down with it (an ImportError here would otherwise stop the whole hook).
+    # BaseException: a SystemExit raised at import time is caught too. A W7 without a usable
+    # RULE_ID (enforceable_ids() calls .upper() on it) or not ALWAYS_LOG_ONLY is dropped.
+    from rules.write import w7_naming  # noqa: E402
+    if not (isinstance(getattr(w7_naming, "RULE_ID", None), str) and w7_naming.RULE_ID
+            and getattr(w7_naming, "ALWAYS_LOG_ONLY", False) is True):
+        w7_naming = None
+except BaseException:
+    w7_naming = None
 from rules.delete import w2_literal_delete_paths  # noqa: E402
 from rules.execute import w0_too_large  # noqa: E402
 
@@ -96,7 +109,8 @@ ACTIONS_FOR_TOOL = {
 }
 TOOL_EVENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 SHELL_EVENT_TOOLS = ("Bash", "PowerShell")
-RULE_MODULES = {"write": (w3_outside_root, w4_review_stamp, w5_temp_dir),
+RULE_MODULES = {"write": tuple(m for m in (w3_outside_root, w4_review_stamp, w5_temp_dir, w7_naming)
+                               if m is not None),
                 "delete": (w2_literal_delete_paths,)}
 
 
@@ -130,18 +144,48 @@ def run(event):
 def run_detailed(event):
     """[(mod, tool_hits, shell_hits, mod_rows), ...] - the same evaluation run() does, but with each
     module's own log rows kept next to its hits, so process() can mark a row `denied` from ITS
-    module's verdict (2026-09-30, per-rule enforcement) instead of guessing afterwards."""
+    module's verdict (2026-09-30, per-rule enforcement) instead of guessing afterwards.
+
+    Per-module isolation (2026-11-23, W7 review): each module's evaluation and each module's
+    log_rows() run in their own try. A module that raises (BaseException, so a SystemExit too)
+    contributes no hits or no rows for this call and nothing else changes: one module's failure can
+    never cost another module its hits, rows or deny."""
     tool = event.get("tool_name") or ""
     started = time.time()
     hits = []
     for mod in modules_for(tool):
-        evaluate_tool = getattr(mod, "evaluate_tool", None)
-        evaluate_shell = getattr(mod, "evaluate_shell", None)
-        th = evaluate_tool(event) if evaluate_tool and tool in TOOL_EVENT_TOOLS else []
-        sh = evaluate_shell(event) if evaluate_shell and tool in SHELL_EVENT_TOOLS else []
+        try:
+            evaluate_tool = getattr(mod, "evaluate_tool", None)
+            evaluate_shell = getattr(mod, "evaluate_shell", None)
+            th = evaluate_tool(event) if evaluate_tool and tool in TOOL_EVENT_TOOLS else []
+            sh = evaluate_shell(event) if evaluate_shell and tool in SHELL_EVENT_TOOLS else []
+            th, sh = list(th or []), list(sh or [])
+        except BaseException:
+            th, sh = [], []
         hits.append([mod, th, sh, int((time.time() - started) * 1000)])
     drop_superseded(hits)
-    return [(mod, th, sh, mod.log_rows(event, th, sh, ms)) for mod, th, sh, ms in hits]
+    return [(mod, th, sh, _module_rows(mod, event, th, sh, ms)) for mod, th, sh, ms in hits]
+
+
+def _module_rows(mod, event, th, sh, ms):
+    """mod.log_rows(...) as a list of dicts; [] if it raises or returns anything else."""
+    try:
+        return [dict(r) for r in mod.log_rows(event, th, sh, ms) if isinstance(r, dict)]
+    except BaseException:
+        return []
+
+
+def _module_verdict(mod, event, th, sh, enforce):
+    """mod.decide(...), or None if it raises, returns anything but a deny-shaped dict, or the
+    module is ALWAYS_LOG_ONLY (W4, W7: their verdict is never used, whatever decide returns)."""
+    try:
+        verdict = mod.decide(event, th, sh, enforce=enforce)
+        if verdict is None or getattr(mod, "ALWAYS_LOG_ONLY", False):
+            return None
+        reason = verdict["hookSpecificOutput"]["permissionDecisionReason"]
+        return verdict if isinstance(reason, str) else None
+    except BaseException:
+        return None
 
 
 def _hit_target(item):
@@ -158,8 +202,12 @@ def _hit_target(item):
 def drop_superseded(hits):
     """In place: a module declaring SUPERSEDES = ("W3",) owns its targets - the superseded
     module's hits on the SAME raw target are removed, so one write is
-    one row (W5 over W3 for a temp write, 2026-10-18)."""
+    one row (W5 over W3 for a temp write, 2026-10-18). An ALWAYS_LOG_ONLY module (W4, W7) never
+    supersedes anything: it cannot deny, so removing another rule's hits would turn that rule's
+    deny into an allow (2026-11-23 review)."""
     for mod, th, sh, _ms in hits:
+        if getattr(mod, "ALWAYS_LOG_ONLY", False):
+            continue
         owned_ids = getattr(mod, "SUPERSEDES", ())
         if not owned_ids or not (th or sh):
             continue
@@ -363,9 +411,11 @@ def process(event, argv):
         if any(th or sh for _mod, th, sh, _rows in detailed):
             global_enforce = output.enforcing(force_log_only=cli_flag(argv, "log-only"))
             env_log = output.env_log_only()
-            verdicts = [mod.decide(event, th, sh,
-                                   enforce=module_enforce(mod, global_enforce, enforce_ids, env_log,
-                                                          enforce_listed))
+            # one try per module (_module_verdict): a module whose decide() raises denies nothing,
+            # and every other module still decides (2026-11-23, W7 review)
+            verdicts = [_module_verdict(mod, event, th, sh,
+                                        module_enforce(mod, global_enforce, enforce_ids, env_log,
+                                                       enforce_listed))
                         for mod, th, sh, _rows in detailed]
     except Exception:
         verdicts = [None] * len(detailed)  # fail open
@@ -780,12 +830,125 @@ def w0_process_self_test(failures):
     return n
 
 
+def w7_entry_self_test(failures):
+    """W7 through the real entry point (review fix 2026-11-23): a W7 hit under every command line,
+    an --enforce list naming W7 included, is logged with denied:false and prints NOTHING; W7 is
+    never an enforceable id. Returns the number of checks."""
+    import io
+    if w7_naming is None:
+        return 0
+    n = 0
+    if "W7" in enforceable_ids() or "W7" not in known_ids():
+        failures.append("W7 must be known but never enforceable")
+    n += 1
+    target = w7_naming.ROOT + "\\Sources\\BadMainHit.cpp"
+    event = {"tool_name": "Write", "cwd": w7_naming.ROOT + "\\Sources", "session_id": "w7-selftest",
+             "tool_input": {"file_path": target, "content": "x"}}
+    saved_env = os.environ.get("CLAUDE_PROJECT_DIR")
+    saved_io = (sys.stdin, sys.stdout)
+    td = w7_naming.selftest_tmp()  # under the hook's own .selftest_tmp, never the system temp
+    try:
+        os.environ["CLAUDE_PROJECT_DIR"] = w7_naming.ROOT
+        for argv in (["--log-only"], ["--log-only", "--enforce=W2,W3,W5,W7"], ["--enforce=W7"]):
+            n += 1
+            hits = os.path.join(td, "w7_%d.jsonl" % n)
+
+            class _In(object):
+                buffer = io.BytesIO(json.dumps(event).encode("utf-8"))
+            out = io.StringIO()
+            sys.stdin, sys.stdout = _In(), out
+            try:
+                main(argv + ["--hits-path=" + hits])
+            except SystemExit:
+                pass
+            finally:
+                sys.stdin, sys.stdout = saved_io
+            rows = []
+            if os.path.exists(hits):
+                with open(hits, "r", encoding="ascii", errors="replace") as fh:
+                    rows = [json.loads(x) for x in fh if x.strip()]
+            w7_rows = [r for r in rows if r.get("rule") == "W7"]
+            if out.getvalue():
+                failures.append("W7 entry: %r printed %r (must print nothing)" % (argv, out.getvalue()[:80]))
+            if not w7_rows or any(r.get("denied") for r in w7_rows):
+                failures.append("W7 entry: %r logged %d W7 rows, denied=%r" % (
+                    argv, len(w7_rows), [r.get("denied") for r in w7_rows]))
+        # a W7 failure must never cost an enforced rule its deny (cross-project replay, 2026-11-23:
+        # W7 raised on 1,455 events, and run_detailed does not wrap each module)
+        ev_out = {"tool_name": "Bash", "cwd": w7_naming.ROOT,
+                  "tool_input": {"command": "echo x > C:\\w7-elsewhere\\o.txt; echo \"unterminated"}}
+        real_inner = w7_naming._evaluate_shell
+
+        def _boom(*a, **k):
+            raise RuntimeError("W7 self-test: forced failure")
+        for inner in (real_inner, _boom):
+            n += 1
+            w7_naming._evaluate_shell = inner
+            try:
+                _rows, verdict, _issues = process(ev_out, ["--log-only", "--enforce=W3"])
+            except Exception as e:
+                verdict = None
+                failures.append("W7 entry: process raised %s" % type(e).__name__)
+            finally:
+                w7_naming._evaluate_shell = real_inner
+            reason = ((verdict or {}).get("hookSpecificOutput") or {}).get("permissionDecision")
+            if reason != "deny":
+                failures.append("W7 entry: W3 lost its deny when W7 %s" % (
+                    "raised" if inner is _boom else "ran on an unbalanced quote"))
+        # per-module isolation (2026-11-23 review): W7's PUBLIC log_rows / decide replaced by ones
+        # that raise (SystemExit included), or a decide that returns a deny, must leave W2's deny
+        # on `rm -rf build` intact and add no W7 reason
+        ev_w2 = {"tool_name": "Bash", "cwd": w7_naming.ROOT,
+                 "tool_input": {"command": "mkdir Sources/NewModX; rm -rf build"}}
+        deny_w7 = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                          "permissionDecisionReason": "W7 MUTANT"}}
+
+        def _raise_exit(*a, **k):
+            raise SystemExit(3)
+        real = (w7_naming.log_rows, w7_naming.decide, w7_naming.evaluate_shell)
+        for name, lr, dc, es in (
+                ("log_rows raises", _boom, real[1], real[2]),
+                ("decide raises", real[0], _boom, real[2]),
+                ("log_rows exits", _raise_exit, real[1], real[2]),
+                ("decide exits", real[0], _raise_exit, real[2]),
+                ("decide denies", real[0], lambda *a, **k: deny_w7, real[2]),
+                ("evaluate_shell raises", real[0], real[1], _boom),
+                ("evaluate_shell exits", real[0], real[1], _raise_exit)):
+            n += 1
+            w7_naming.log_rows, w7_naming.decide, w7_naming.evaluate_shell = lr, dc, es
+            try:
+                _rows, verdict, _issues = process(ev_w2, ["--log-only", "--enforce=W2,W3,W5"])
+            except BaseException as e:
+                verdict = None
+                failures.append("W7 isolation (%s): process raised %s" % (name, type(e).__name__))
+            finally:
+                w7_naming.log_rows, w7_naming.decide, w7_naming.evaluate_shell = real
+            out = (verdict or {}).get("hookSpecificOutput") or {}
+            why = out.get("permissionDecisionReason", "")
+            if out.get("permissionDecision") != "deny" or "W2" not in why or "W7" in why:
+                failures.append("W7 isolation (%s): W2 deny lost or W7 in it: %r" % (name, why[:80]))
+    finally:
+        w7_naming.remove_selftest_tmp(td)
+        sys.stdin, sys.stdout = saved_io
+        if saved_env is None:
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+        else:
+            os.environ["CLAUDE_PROJECT_DIR"] = saved_env
+    return n
+
+
 def self_test():
     import tempfile
 
     failures = []
     n_cases = 0
-    for mod in (w3_outside_root, w4_review_stamp, w2_literal_delete_paths, w5_temp_dir, w0_too_large):
+    if w7_naming is None:
+        failures.append("W7 (rules/write/w7_naming.py) failed to import")
+    n_cases += w7_entry_self_test(failures)
+    for mod in (w3_outside_root, w4_review_stamp, w2_literal_delete_paths, w5_temp_dir, w0_too_large,
+                w7_naming):
+        if mod is None:
+            continue
         failures.extend(mod.run_self_test())
         n_cases += len(getattr(mod, "TOOL_CASES", ()))
         n_cases += len(getattr(mod, "SHELL_CASES", ()))
@@ -1002,6 +1165,37 @@ def self_test():
         _got = sorted(r["rule"] for r in _rows)  # every row: no stray rule may appear either
         if _got != _want:
             failures.append("W5/W3 de-dup: %s %r gave rows %r, want %r" % (_tool, _ti, _got, _want))
+        n_cases += 1
+
+    # an ALWAYS_LOG_ONLY module never supersedes (2026-11-23 review: a W7 copy declaring
+    # SUPERSEDES = ("W2", "W3") turned their denies into allows)
+    class _Mod(object):
+        def __init__(self, rid, log_only, sup=()):
+            self.RULE_ID, self.ALWAYS_LOG_ONLY, self.SUPERSEDES = rid, log_only, sup
+    _lo, _w2 = _Mod("WX", True, ("W2",)), _Mod("W2", False)
+    _hits = [[_w2, [], [("W2", ("rm -rf build", "rm", "build"))], 0],
+             [_lo, [], [("WX", ("rm -rf build", "rm", "build"))], 0]]
+    drop_superseded(_hits)
+    if not _hits[0][2]:
+        failures.append("drop_superseded: an ALWAYS_LOG_ONLY module removed W2's hits")
+    _hits[1][0] = _Mod("WX", False, ("W2",))  # control: an enforcing module still supersedes
+    drop_superseded(_hits)
+    if _hits[0][2]:
+        failures.append("drop_superseded: an enforcing SUPERSEDES module no longer supersedes")
+    n_cases += 2
+    if w7_naming is not None:
+        _ev = {"tool_name": "Bash", "cwd": w3_outside_root.ROOT, "tool_input": {"command": "rm -rf build"}}
+        _real_es = w7_naming.evaluate_shell
+        w7_naming.SUPERSEDES = ("W2", "W3")
+        w7_naming.evaluate_shell = lambda ev, *a, **k: [("W7", ("rm -rf build", "rm", "build", "x", "code"))]
+        try:
+            _rows, _verdict, _i = process(_ev, ["--log-only", "--enforce=W2,W3,W5"])
+        finally:
+            w7_naming.evaluate_shell = _real_es
+            del w7_naming.SUPERSEDES
+        _why = ((_verdict or {}).get("hookSpecificOutput") or {}).get("permissionDecisionReason", "")
+        if "W2" not in _why:
+            failures.append("W7 with SUPERSEDES = (W2, W3) removed W2's deny on rm -rf build")
         n_cases += 1
 
     if failures:
