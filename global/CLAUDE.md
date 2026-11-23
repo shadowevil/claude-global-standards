@@ -77,6 +77,15 @@ per-project CLAUDE.md and project memory).
 - **Briefs are self-contained:** intent (edit / read-only / propose-then-edit), goal, where (each location
   tagged verified / located / guess), constraints, done-when, report shape - and the model chosen and
   why. Never orient in the main session's context; if the location is unknown, say where to start.
+- **When the advisor is set to a model and enabled, every subagent prompt carries an advisor line** (user
+  rule, 2026-11-18: "If the advisor is set to a model and enabled, every sub agent MUST get a line about the
+  Advisor tool and whether or not it is allowed, forbidden or ask project manager (you)."). Make it the first
+  line of the prompt: `ADVISOR: ALLOWED`, `ADVISOR: FORBIDDEN`, or `ADVISOR: ASK PM` (get the main session's
+  yes before calling; with no way to message it, finish and report the need). The line overrides any built-in
+  advisor guidance. **The project manager and review agents never use the advisor** (user rule, 2026-11-18:
+  "the project manager, and review agents do not get the advisor capability so they always get a forbidden
+  prompt"): the main session does not call it, and every review agent gets `ADVISOR: FORBIDDEN`. Agent
+  definitions cannot enforce this: `tools` and `disallowedTools` did not block it (measured 2026-11-18, Sonnet).
 - **Pick the cheapest model that does the job well** (user rule, 2026-10-21), unless the project's
   CLAUDE.md sets its own. Haiku for clear, fully specified actions: "edit this line, in this
   document", bulk edits ("edit these lines in these documents"; the user: "Haiku, now with the 5.5
@@ -140,6 +149,19 @@ per-project CLAUDE.md and project memory).
   `<project>\.claude\scratch\<role or session>\<task or ticket>\`. Durable outputs go where they
   belong instead: measurements and baselines in `.claude\metrics\`, docs in `.claude\docs\`, plans in
   `.claude\design\plans\`. Nothing is dropped loose at the project root or in a parent folder.
+- **Where Claude workflow tools live is each project's call; the recommended default is
+  `<project>\.claude\tools\`** (user, 2026-11-23: "it should be up to the project to define it - but global
+  should have a recommendation"). Workflow tools are backup, search and helper scripts written for or by
+  Claude sessions, with one-off migration and refactor scripts in `.claude\tools\scripts\`. Product tooling
+  (editors, installers, build and DB generators) stays with the code it serves. A project's CLAUDE.md states
+  its location. Without one, use the default and drop nothing workflow-related at the project root. No hook enforces this.
+- **File and folder names** (user rule, 2026-11-23: the global replacement for a project snake_case rule).
+  Code files and their folders follow their language's convention (C++ and Python: `snake_case`).
+  Markdown docs and their sidecar folders follow the docs standard: lowercase, hyphenated, ID prefixes
+  included (`d-231-title.md`, not `D-231-title.md`; `report.md`, not `REPORT.md`; user, 2026-11-23). Names a tool
+  requires stay as they are (`CMakeLists.txt`, `README.md`, `CLAUDE.md`, `Makefile`, `__init__.py`), and so do
+  third-party trees. New files follow this now. Renaming existing files is a planned, dry-run and reviewed
+  job, never a side effect of other work.
 - **A project's `.claude\` stays under 1 GB** (user rule, 2026-10-20: "if the agents local .claude
   directory gets bigger than 1gb, it needs to prune any temporary files and address the bloat").
   Over it, prune temporary files first (scratch, stale outputs), with literal delete paths, then report
